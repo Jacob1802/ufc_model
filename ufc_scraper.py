@@ -9,6 +9,7 @@ import re
 
 def main():
     extract_fight_details()
+    # extract_fighter_stats()
 
 
 def get_events() -> List[str]:
@@ -40,7 +41,10 @@ def extract_event_details():
         links = []
         response = requests.get(event)
         soup = BeautifulSoup(response.content, "html.parser")
-        row = {}
+        event = soup.find("span", class_="b-content__title-highlight").text.strip()
+        
+        row = {"event" : event}
+        
         for li in soup.find_all("li", class_="b-list__box-list-item"):
             title = li.find("i").text.strip()
             value = li.text.strip().replace(title, "").strip()
@@ -59,26 +63,31 @@ def extract_event_details():
 def extract_fight_details():
     data = extract_event_details()
     rows = []
-    for event in data:
-        date = event['date']
-        location = event['location']
-        for i, fight in enumerate(event['fight_details'], start=1):
-            row = {"fight_num" : i, "date": date, "location": location}
+    for card in data:
+        date = card['date']
+        location = card['location']
+        event = card['event']
+        
+        for i, fight in enumerate(card['fight_details'], start=1):
+            row = {"fight_num" : i, "date": date, "location": location, "event" : event}
             response = requests.get(fight)
             soup = BeautifulSoup(response.content, "html.parser")
             names = [name.text.strip() for name in soup.find_all("h3", class_="b-fight-details__person-name")]
+            result = soup.find("i", class_="b-fight-details__person-status").text.strip()
+            row["result"] = result
+            
             for i, name in enumerate(names, start=1):
                 row[f'fighter_{i}'] = name
-                
-            # Add fight details (method, round, time, format, ref)
+            
+                row["result"] = result
+                # Add fight details (method, round, time, format, ref)
                 details = [i for detail in soup.find_all("p", class_="b-fight-details__text") for i in detail.stripped_strings]
                 for i in range(0, len(details), 2):
                     if details[i] == "Details:":
-                        row[details[i]] = " ".join(details[i+1:])
-
+                        row[details[i].strip(":").lower()] = " ".join(details[i+1:])
                         break
                     else:
-                        row[details[i]] = details[i + 1]
+                        row[details[i].strip(":").lower()] = details[i + 1]
             stats = soup.find_all("tbody", class_="b-fight-details__table-body")
             
             for j in range(len(stats)):
@@ -130,7 +139,11 @@ def extract_fight_details():
                         else:
                             row["total_" + key + "_1"] = data[i+inc]
                             row["total_" + key + "_2"] = data[i+1+inc]
-        rows.append(row)  
+            rows.append(row)  
+    
+    df = pd.DataFrame(rows)
+    
+    df.to_csv("fights.csv", index=False)
 
 
 def get_fighter_links() -> List[str]:
@@ -154,7 +167,7 @@ def get_fighter_links() -> List[str]:
         for link in links:
             fighter_links.add(link['href'])
 
-    return list(fighter_links)
+    return list(fighter_links)[:5]
 
 
 def extract_fighter_stats():
@@ -180,7 +193,7 @@ def extract_fighter_stats():
                     if key in ["Height", "Reach"]:
                         value = inch_to_cm(value)
                     elif key == "Weight":
-                        value = weight_to_weightclass(value)
+                        value = get_weightclass(value)
                     elif key == "DOB":
                         # Convert date string to datetime object
                         dob = datetime.strptime(value, '%b %d, %Y').date()
