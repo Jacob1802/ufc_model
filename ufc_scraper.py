@@ -31,7 +31,7 @@ def get_events() -> List[str]:
         href = link['href']
         event_links.append(href)
     
-    return event_links[::-1]
+    return event_links[:5]
 
 
 def extract_event_details():
@@ -79,15 +79,18 @@ def extract_fight_details():
             for i, name in enumerate(names, start=1):
                 row[f'fighter_{i}'] = name
             
-                row["result"] = result
                 # Add fight details (method, round, time, format, ref)
                 details = [i for detail in soup.find_all("p", class_="b-fight-details__text") for i in detail.stripped_strings]
                 for i in range(0, len(details), 2):
-                    if details[i] == "Details:":
-                        row[details[i].strip(":").lower()] = " ".join(details[i+1:])
+                    if details[i] != "Details:":
+                        row[details[i].strip(":").lower()] = details[i + 1]
+                    elif row['method'] == "TKO - Doctor's Stoppage":
+                        row[details[i].strip(":").lower()] = None
                         break
                     else:
-                        row[details[i].strip(":").lower()] = details[i + 1]
+                        row[details[i].strip(":").lower()] = ' '.join([part.strip() for part in details[i+1:][0].split('\n')])
+                        break
+
             stats = soup.find_all("tbody", class_="b-fight-details__table-body")
             
             for j in range(len(stats)):
@@ -167,7 +170,7 @@ def get_fighter_links() -> List[str]:
         for link in links:
             fighter_links.add(link['href'])
 
-    return list(fighter_links)[:5]
+    return list(fighter_links)
 
 
 def extract_fighter_stats():
