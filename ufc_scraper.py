@@ -9,7 +9,6 @@ import re
 
 def main():
     extract_fight_details()
-    
 
 
 def get_events() -> List[str]:
@@ -58,7 +57,6 @@ def extract_event_details():
 
 
 def extract_fight_details():
-    s = time.time()
     data = extract_event_details()
     rows = []
     for event in data:
@@ -132,16 +130,10 @@ def extract_fight_details():
                         else:
                             row["total_" + key + "_1"] = data[i+inc]
                             row["total_" + key + "_2"] = data[i+1+inc]
-            print(row)
-            return
-        
-        rows.append(row)
-        
-        
+        rows.append(row)  
+
 
 def get_fighter_links() -> List[str]:
-    start = time.time()
-    
     """Extract fighter profile links from ufcstats.com
 
     Returns:
@@ -162,12 +154,11 @@ def get_fighter_links() -> List[str]:
         for link in links:
             fighter_links.add(link['href'])
 
-    
-    return list(fighter_links), start
+    return list(fighter_links)
 
 
 def extract_fighter_stats():
-    links, start = get_fighter_links()
+    links = get_fighter_links()
     rows = []
     # if fighter not in fights since last run skip
     for fighter_link in links:
@@ -188,6 +179,8 @@ def extract_fighter_stats():
                 if value is not None:
                     if key in ["Height", "Reach"]:
                         value = inch_to_cm(value)
+                    elif key == "Weight":
+                        value = weight_to_weightclass(value)
                     elif key == "DOB":
                         # Convert date string to datetime object
                         dob = datetime.strptime(value, '%b %d, %Y').date()
@@ -217,7 +210,23 @@ def extract_fighter_stats():
     
     df = df.sort_values('fighter')
     df.to_csv("fighters.csv", index=False)
-    print(time.time() - start)
+
+
+def get_weightclass(weight):
+    weight = int(weight.rstrip(" lbs."))
+    weight_classes = {
+        134: "Flyweight",
+        144: "Bantamweight",
+        154: "Featherweight",
+        169: "Lightweight",
+        184: "Welterweight",
+        204: "Middleweight",
+        224: "Lightheavyweight",
+        float('inf'): "Heavyweight"
+    }
+    for upper_limit, weight_class in weight_classes.items():
+        if weight < upper_limit:
+            return weight_class
 
 
 def inch_to_cm(height) -> float:
