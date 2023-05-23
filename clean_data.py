@@ -109,18 +109,20 @@ def add_new_features(df):
     accuracy = ['sig_str', 'str', 'td']
 
     methods = ['Decision','KO/TKO','Other','Submission']
-    
+    temp_df = pd.DataFrame()
     grouped_fighters = df.groupby('fighter', group_keys=False)
     
-    df['num_fights'] = grouped_fighters.cumcount()
+    temp_df['fighter'] = df['fighter']
+    temp_df['fight_num'] = df['fight_num']
+    temp_df['num_fights'] = grouped_fighters.cumcount()
     df['total_fight_time'] = grouped_fighters['time'].cumsum()
-    df['days_since_last_fight'] = grouped_fighters['date'].apply(lambda x: x - x.shift(1))
+    temp_df['days_since_last_fight'] = grouped_fighters['date'].apply(lambda x: x - x.shift(1))
     
     # Total wins, losses & w/l by decison, ko, sub, other
     for result in ["W", "L"]:
-        df["total_" + result.lower()] = grouped_fighters.apply(lambda x: (x['result'] == result).shift(1).cumsum())
+        temp_df["total_" + result.lower()] = grouped_fighters.apply(lambda x: (x['result'] == result).shift(1).cumsum())
         for method in methods:
-            df[result.lower() + "_" + method.lower()] = grouped_fighters.apply(lambda x: ((x['result'] == result) & (x['method'] == method)).shift(1).cumsum())
+            temp_df[result.lower() + "_" + method.lower()] = grouped_fighters.apply(lambda x: ((x['result'] == result) & (x['method'] == method)).shift(1).cumsum())
 
     # for col in accuracy:
     #     df[col + '_accuracy'] = df.apply(calculate_accuracy(df[col + '_attempts'], df[col + '_landed']))
@@ -134,22 +136,19 @@ def add_new_features(df):
         
         calculate_weighted_avg(df, col)
         calculate_avg(df, col)
-    
-    # Group the DataFrame by 'fighter' column
-    grouped_df = df.groupby('fighter', group_keys=False)
 
     for col in totals:
         if col == "round_finished":
-            df["foo"] = grouped_df[col].cumsum()
-            df['total_rounds1'] = grouped_df['foo'].shift(1)
+            df["foo"] = grouped_fighters[col].cumsum()
+            temp_df['total_rounds'] = grouped_fighters['foo'].shift(1)
         else:
-            df["foo1"] = grouped_df[col].cumsum()
-            df["total_" + col] = grouped_df['foo1'].shift(1)
+            df["foo1"] = grouped_fighters[col].cumsum()
+            temp_df["total_" + col] = grouped_fighters['foo1'].shift(1)
             
     df = df.drop(['foo', 'foo1'], axis=1)
-    
+
     # Iterate over each group
-    for _, group in grouped_df:
+    for _, group in grouped_fighters:
         # Reset streak counters for each group
         current_win_streak = 0
         current_loss_streak = 0
@@ -157,8 +156,8 @@ def add_new_features(df):
         # Iterate over rows in the group
         for index, row in group.iterrows():
             # Update streak columns for the current row
-            df.at[index, 'win_streak'] = current_win_streak
-            df.at[index, 'loss_streak'] = current_loss_streak
+            temp_df.at[index, 'win_streak'] = current_win_streak
+            temp_df.at[index, 'loss_streak'] = current_loss_streak
             if row['result'] == 'W':
                 # Increment win streak and reset loss streak
                 current_win_streak += 1
@@ -170,61 +169,8 @@ def add_new_features(df):
             else:
                 current_win_streak = 0
                 current_loss_streak = 0
-
-    return df
-
-
-def add_new_features(df):
-    totals = ['kd', 'kd_received', 'round_finished', 'sig_str_landed', 'sig_str_received', 'sig_str_attempts',
-              'sig_str_avoided', 'str_received', 'str_attempts', 'str_avoided', 'str_landed',
-              'td_received', 'td_attempts', 'td_avoided', 'td_landed']
-
-    damage_cols = ['sig_str_landed', 'sig_str_attempts', 'sig_str_received', 'sig_str_avoided',
-                   'str_landed', 'str_attempts', 'str_received', 'str_avoided']
-
-    differentials = ['sig_str_landed', 'str_landed']
-
-    lags = damage_cols + ['kd', 'kd_received', 'td_landed', 'td_attempts', 'td_received', 'td_avoided',
-                          'sub_att', 'rev']
-
-    accuracy = ['sig_str', 'str', 'td']
-
-    methods = ['Decision', 'KO/TKO', 'Other', 'Submission']
-
-    grouped_fighters = df.groupby('fighter', group_keys=False)
-
-    temp_df = pd.DataFrame()
-
-    temp_df['num_fights'] = grouped_fighters.cumcount()
-    temp_df['total_fight_time'] = grouped_fighters['time'].cumsum()
-    temp_df['days_since_last_fight'] = grouped_fighters['date'].diff()
-
-    for result in ["W", "L"]:
-        temp_df["total_" + result.lower()] = grouped_fighters['result'].apply(lambda x: (x == result).shift().cumsum())
-        for method in methods:
-            temp_df[result.lower() + "_" + method.lower()] = grouped_fighters.apply(
-                lambda x: ((x['result'] == result) & (x['method'] == method)).shift().cumsum())
-
-    for col in differentials:
-        temp_df[col + '_diff'] = grouped_fighters[col].diff()
-        
-    for col in lags + ['sig_str_landed_diff', 'str_landed_diff']:
-        for i in range(1, 4):
-            temp_df[col + '_lag' + str(i)] = grouped_fighters[col].shift(i)
-        
-        temp_df[col + '_weighted_avg'] = temp_df.groupby('fighter')[col].transform(lambda x: np.average(x, weights=df['round_finished']))
-        temp_df[col + '_avg'] = temp_df.groupby('fighter')[col].transform('mean')
-
-    temp_df['total_rounds'] = grouped_fighters['round_finished'].cumsum().shift()
-    temp_df['total_rounds'] = temp_df.groupby('fighter')['total_rounds'].transform('first')
-
-    win_streak = (df['result'] == 'W').groupby(df['fighter']).cumsum()
-    loss_streak = (df['result'] == 'L').groupby(df['fighter']).cumsum()
-
-    temp_df['win_streak'] = win_streak.where(win_streak > 0, 0)
-    temp_df['loss_streak'] = loss_streak.where(loss_streak > 0, 0)
-
-    df = pd.concat([df, temp_df], axis=1)
+                
+    df = df.merge(temp_df, on=['fighter', 'fight_num'])
 
     return df
 
@@ -232,8 +178,7 @@ def add_new_features(df):
 def calculate_avg(df, column):
     df['avg_' + column + "_per_min"] = df[column] / df['total_fight_time']
 
-    return df
-    
+
 def differential(df, column):
     group = df.groupby('fight_num',group_keys=False)[column]
     # Get difference of stats
@@ -245,12 +190,10 @@ def differential(df, column):
     differ[nan_indices] *= -1
     
     df[column + "_differential"] = differ.astype(float)
-    return df
 
 
 def lag(df, column, step):
     df[column + '_lag' + str(step)] = df.groupby('fighter')[column].shift(step).fillna(0).astype(int)
-    return df
 
 
 def calculate_weighted_avg(df, column):
@@ -265,7 +208,6 @@ def calculate_weighted_avg(df, column):
     weighted_avg = one.fillna(0)
     
     df[column + "_weighted_avg"] = weighted_avg.astype(float)
-    return df
 
 
 def convert_to_minutes(x):
