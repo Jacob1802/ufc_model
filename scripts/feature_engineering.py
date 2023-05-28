@@ -11,13 +11,17 @@ INITIAL_RATING = 1200 # Starting rating for new fighters
 # Dictionary to store each fighter's rating
 fighter_ratings = {}
 
+# get age
 
 def main():
     input_file = pd.read_csv("data/raw_fight_totals.csv")
     
-    elo_df = set_elo(input_file)
-    df = input_file.merge(elo_df)
-    new = split_dataframe(df)
+    # elo_df = set_elo(input_file)
+    # return
+    # df = input_file.merge(elo_df)
+    new = split_dataframe(input_file)
+    elo = set_elo(new)
+    new[['elo', 'elo_change']] = elo[['elo', 'elo_change']]
     df = reformat_data(new)
     df = add_new_features(df)
     # Fill NaN values in columns with non-time data types
@@ -36,7 +40,8 @@ def split_dataframe(df):
     method_columns = ['method', 'time format', 'time', 'round']
     cols = ['sig_str_landed', 'sig_str_attempts', 'sig_str_received', 'sig_str_avoided', 'sig_str_percent', 'str_landed', 
         'str_attempts', 'str_received', 'str_avoided', 'str_percent', 'td_landed', 'td_attempts', 'td_received', 'td_avoided', 
-        'td_percent', 'kd', 'kd_received', 'sub_att', 'rev', 'ctrl', 'sig_reg_mixture', 'sig_reg_percent', 'elo', 'elo_change']
+        'td_percent', 'kd', 'kd_received', 'sub_att', 'rev', 'ctrl', 'sig_reg_mixture', 'sig_reg_percent']
+    #'elo', 'elo_change'
     
     new_columns = details_columns + method_columns + cols
 
@@ -88,8 +93,8 @@ def reformat_data(df):
         "Could Not Continue": "Other"
     })
     group = df.groupby('fighter')
-    df['elo'] = group['elo'].shift(1)
-    df['elo_change'] = group['elo_change'].shift(1)
+    # df['elo'] = group['elo'].shift(1)
+    # df['elo_change'] = group['elo_change'].shift(1)
 
     for col in ["sig_str_percent", "td_percent"]:
         df[col] = df[col].str.strip("%").replace("---", "0").fillna(0).apply(lambda x: int(x) / 100)
@@ -134,7 +139,7 @@ def add_new_features(df):
     
     temp_df['fighter'] = df['fighter']
     temp_df['fight_num'] = df['fight_num']
-    temp_df['num_fights'] = grouped_fighters.cumcount()
+    temp_df['num_fights'] = grouped_fighters.cumcount().shift(1)
     df['total_fight_time'] = grouped_fighters['time'].cumsum()
     temp_df['days_since_last_fight'] = grouped_fighters['date'].apply(lambda x: x - x.shift(1)).fillna(pd.Timedelta(0))
     
@@ -254,40 +259,46 @@ def update_ratings(winner, loser):
 
 
 def set_elo(df):
-    elo_table = pd.DataFrame()
-    for i, row in df.iterrows():
-        elo_table.at[i, 'fighter_1'] = row['fighter_1']
-        elo_table.at[i, 'fighter_2'] = row['fighter_2']
-        if row['result_1'] == "W":
-            winner = row['fighter_1']
-            loser = row['fighter_2']
-        elif row['result_1'] == "L":
-            loser = row['fighter_1']
-            winner = row['fighter_2']
-        
-        winner_rating = fighter_ratings.get(winner, 1200)
-        loser_rating = fighter_ratings.get(loser, 1200)
-        # expected_win_probability = calculate_expected_win_probability(winner_rating, loser_rating)
-        winner_new_rating, loser_new_rating = update_ratings(winner, loser)
-        fighter_ratings[winner] = winner_new_rating
-        fighter_ratings[loser] = loser_new_rating
-        if row['fighter_1'] == winner:
-            elo_table.at[i, 'elo_1'] = winner_new_rating
-            elo_table.at[i, 'elo_change_1'] = winner_new_rating - winner_rating
-            elo_table.at[i, 'elo_2'] = loser_new_rating
-            elo_table.at[i, 'elo_change_2'] = loser_new_rating - loser_rating
-        elif row['fighter_2'] == winner:
-            elo_table.at[i, 'elo_2'] = winner_new_rating
-            elo_table.at[i, 'elo_change_2'] = winner_new_rating - winner_rating
-            elo_table.at[i, 'elo_1'] = loser_new_rating
-            elo_table.at[i, 'elo_change_1'] = loser_new_rating - loser_rating
+    rows = []
+    group = df.groupby("fight_num")
+    for group_i, group_df in group:
+        other = False
+        row_1 = {'fight_num' : group_i, 'fighter' : group_df.iloc[0]['fighter']}
+        row_2 = {'fight_num' : group_i, 'fighter' : group_df.iloc[1]['fighter']}
+        if group_df.iloc[0]['result'] == "W":
+            winner = group_df.iloc[0]['fighter']
+            loser = group_df.iloc[1]['fighter']
+        elif group_df.iloc[1]['result'] == "W":
+            winner = group_df.iloc[1]['fighter']
+            loser = group_df.iloc[0]['fighter']
         else:
-            elo_table.at[i, 'elo_1'] = fighter_ratings.get(row['fighter_1'])
-            elo_table.at[i, 'elo_change_1'] = 0
-            elo_table.at[i, 'elo_2'] = fighter_ratings.get(row['fighter_2'])
-            elo_table.at[i, 'elo_change_2'] = 0
+            other = True
+            row_1['elo'] = fighter_ratings.get(group_df.iloc[0]['fighter'])
+            row_1['elo_change'] = 0
+            row_2['elo'] = fighter_ratings.get(group_df.iloc[1]['fighter'])
+            row_2['elo_change'] = 0
+            
+        if not other:
+            winner_rating = fighter_ratings.get(winner, 1200)
+            loser_rating = fighter_ratings.get(loser, 1200)
+            winner_new_rating, loser_new_rating = update_ratings(winner, loser)
+            fighter_ratings[winner] = winner_new_rating
+            fighter_ratings[loser] = loser_new_rating
+            if row_1['fighter'] == winner:
+                row_1['elo'] = winner_new_rating
+                row_1['elo_change'] = winner_new_rating - winner_rating
+                row_2['elo'] = loser_new_rating
+                row_2['elo_change'] = loser_new_rating - loser_rating
+            elif row_2['fighter'] == winner:
+                row_1['elo'] = winner_new_rating
+                row_1['elo_change'] = winner_new_rating - winner_rating
+                row_2['elo'] = loser_new_rating
+                row_2['elo_change'] = loser_new_rating - loser_rating
+        
+        rows.append(row_1)
+        rows.append(row_2)
     
-
+    elo_table = pd.DataFrame(rows)
     return elo_table
 
 
