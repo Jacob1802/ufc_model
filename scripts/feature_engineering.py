@@ -1,10 +1,7 @@
-from trueskill import rate_1vs1, Rating
+from sklearn.preprocessing import LabelEncoder
 import pandas as pd
-import datetime as dt
-import numpy as np
-import time
 import math
-
+import sys
 K = 32 # Maximum change in rating
 INITIAL_RATING = 1200 # Starting rating for new fighters
 
@@ -15,15 +12,13 @@ fighter_ratings = {}
 
 def main():
     input_file = pd.read_csv("data/raw_fight_totals.csv")
-    
-    # elo_df = set_elo(input_file)
-    # return
-    # df = input_file.merge(elo_df)
     new = split_dataframe(input_file)
     elo = set_elo(new)
     new[['elo', 'elo_change']] = elo[['elo', 'elo_change']]
     df = reformat_data(new)
     df = add_new_features(df)
+    df['days_since_last_fight'] = df['days_since_last_fight'].astype(str)
+    df['days_since_last_fight'] = pd.to_numeric(df['days_since_last_fight'].str.replace(' days', ''))
     # Fill NaN values in columns with non-time data types
     dt_excluded_cols = df.select_dtypes(exclude=['timedelta64[ns]'])
     df[dt_excluded_cols.columns] = dt_excluded_cols.fillna(0)
@@ -32,7 +27,31 @@ def main():
     dt_cols = df.select_dtypes(include=['timedelta64[ns]'])
     df[dt_cols.columns] = dt_cols.fillna(pd.Timedelta(0))
     
-    df.to_csv("data/fights.csv", index=False)
+    joined_df = join_rows(df)
+    encoder = LabelEncoder()
+    joined_df = joined_df[joined_df['result'].isin(['W', 'L'])]
+    joined_df.insert(5, "result_code", encoder.fit_transform(joined_df['result']))
+    joined_df.insert(3, "fighter_code", encoder.fit_transform(joined_df['fighter']))
+    joined_df.insert(7, "weight_class_code", encoder.fit_transform(joined_df['weight_class']))
+
+    joined_df.to_csv("data/fights.csv", index=False)
+
+
+def join_rows(df):
+    grouped = df.groupby('fight_num')
+    exclude = ['opponent_fight_num', 'opponent_date', 'opponent_result', 'opponent_weight_class', 'opponent_method', 'opponent_time', 'opponent_round_finished', 
+               'opponent_rounds']
+    rows = []
+    for idx, group in grouped:
+        row1 = group.iloc[0]
+        row2 = group.iloc[1].rename(lambda x: 'opponent_' + x)
+        rev_row1 = group.iloc[0].rename(lambda x: 'opponent_' + x)
+        rev_row2 = group.iloc[1]
+        rows.append(pd.concat([row1, row2]))
+        rows.append(pd.concat([rev_row2, rev_row1]))
+    
+    new_df = pd.DataFrame(rows).reset_index(drop=True).drop(exclude, axis=1) 
+    return new_df
 
 
 def split_dataframe(df):
@@ -41,7 +60,6 @@ def split_dataframe(df):
     cols = ['sig_str_landed', 'sig_str_attempts', 'sig_str_received', 'sig_str_avoided', 'sig_str_percent', 'str_landed', 
         'str_attempts', 'str_received', 'str_avoided', 'str_percent', 'td_landed', 'td_attempts', 'td_received', 'td_avoided', 
         'td_percent', 'kd', 'kd_received', 'sub_att', 'rev', 'ctrl', 'sig_reg_mixture', 'sig_reg_percent']
-    #'elo', 'elo_change'
     
     new_columns = details_columns + method_columns + cols
 
@@ -77,6 +95,7 @@ def reformat_data(df):
         "men_middleweight",
         "men_light_heavyweight",
         "men_heavyweight",
+        "UFC INTERIM MIDDLEWEIGHT TITLE BOUT"
         "womens_strawweight",
         "womens_flyweight",
         "womens_bantamweight",
@@ -98,9 +117,10 @@ def reformat_data(df):
 
     for col in ["sig_str_percent", "td_percent"]:
         df[col] = df[col].str.strip("%").replace("---", "0").fillna(0).apply(lambda x: int(x) / 100)
+    
+    
     df['date'] = pd.to_datetime(df['date']).fillna(pd.Timedelta(0))
-    df['weight_class'] = df['weight_class'].str.replace("UFC", "").str.replace("Title", "")
-    df['weight_class'] = df['weight_class'].str.replace("Bout", "").str.strip().str.replace(" ", "_")
+    df['weight_class'] = df['weight_class'].str.replace(r"UFC|Interim|Title|Bout", "", regex=True).str.strip().str.replace(" ", "_")
     df['weight_class'] = df['weight_class'].str.replace("Women's", "womens").str.lower()
     df['weight_class'] = df['weight_class'].apply(lambda x: "men_" + x if not x.startswith("women") else x)
     df['weight_class'] = df['weight_class'].apply(lambda x: "catchweight" if x.lower() not in ufc_weight_classes else x)
@@ -110,12 +130,13 @@ def reformat_data(df):
     df['ctrl'] = pd.to_datetime(df['ctrl'], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime('00:00:00', format='%H:%M:%S')).apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes
     
     df = df.rename(columns={'round': 'round_finished'})
-    # df['rounds'] = df['time format'].apply(lambda x: "1" if x == "No Time Limit" else x).str.extract('^(\d+)', expand=False).astype(int)
+    df['rounds'] = df['time format'].apply(lambda x: "1" if x == "No Time Limit" else x).str.extract('^(\d+)', expand=False).astype(int)
     df = df.drop('time format', axis=1)
     return df
 
 
 def add_new_features(df):
+    # encoder = LabelEncoder()
     totals = ['kd', 'kd_received','round_finished','sig_str_landed','sig_str_received','sig_str_attempts',
         'sig_str_avoided','str_received','str_attempts', 'str_avoided','str_landed',
         'td_received','td_attempts','td_avoided','td_landed']
@@ -137,6 +158,7 @@ def add_new_features(df):
     temp_df = pd.DataFrame()
     grouped_fighters = df.groupby('fighter', group_keys=False)
     
+    # temp_df['fighter_code'] = encoder.fit_transform(df['fighter'])
     temp_df['fighter'] = df['fighter']
     temp_df['fight_num'] = df['fight_num']
     temp_df['num_fights'] = grouped_fighters.cumcount().shift(1)
