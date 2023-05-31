@@ -1,7 +1,10 @@
 from sklearn.preprocessing import LabelEncoder
+from future_fights import get_future_matchups
 import pandas as pd
 import math
 import sys
+import re
+
 K = 32 # Maximum change in rating
 INITIAL_RATING = 1200 # Starting rating for new fighters
 
@@ -26,14 +29,12 @@ def main():
     # Fill NaT values in columns with time data types
     dt_cols = df.select_dtypes(include=['timedelta64[ns]'])
     df[dt_cols.columns] = dt_cols.fillna(pd.Timedelta(0))
-    
-    joined_df = join_rows(df)
     encoder = LabelEncoder()
-    joined_df = joined_df[joined_df['result'].isin(['W', 'L'])]
-    joined_df.insert(5, "result_code", encoder.fit_transform(joined_df['result']))
-    joined_df.insert(3, "fighter_code", encoder.fit_transform(joined_df['fighter']))
-    joined_df.insert(7, "weight_class_code", encoder.fit_transform(joined_df['weight_class']))
-
+    df = df[df['result'].isin(['W', 'L'])]
+    df.insert(3, "fighter_code", encoder.fit_transform(df['fighter']))
+    df.insert(5, "result_code", encoder.fit_transform(df['result']))
+    df.insert(7, "weight_class_code", encoder.fit_transform(df['weight_class']))
+    joined_df = join_rows(df)
     joined_df.to_csv("data/fights.csv", index=False)
 
 
@@ -95,7 +96,6 @@ def reformat_data(df):
         "men_middleweight",
         "men_light_heavyweight",
         "men_heavyweight",
-        "UFC INTERIM MIDDLEWEIGHT TITLE BOUT"
         "womens_strawweight",
         "womens_flyweight",
         "womens_bantamweight",
@@ -118,12 +118,10 @@ def reformat_data(df):
     for col in ["sig_str_percent", "td_percent"]:
         df[col] = df[col].str.strip("%").replace("---", "0").fillna(0).apply(lambda x: int(x) / 100)
     
-    
+
     df['date'] = pd.to_datetime(df['date']).fillna(pd.Timedelta(0))
-    df['weight_class'] = df['weight_class'].str.replace(r"UFC|Interim|Title|Bout", "", regex=True).str.strip().str.replace(" ", "_")
-    df['weight_class'] = df['weight_class'].str.replace("Women's", "womens").str.lower()
-    df['weight_class'] = df['weight_class'].apply(lambda x: "men_" + x if not x.startswith("women") else x)
-    df['weight_class'] = df['weight_class'].apply(lambda x: "catchweight" if x.lower() not in ufc_weight_classes else x)
+    df['weight_class'] = df['weight_class'].apply(extract_weightclass).str.strip().str.lower().str.replace(" ", "_").replace("'", "")
+
     # Remove any 'OT' occurrences if present and convert to datetime object
     df['time'] = pd.to_datetime(df['time'].str.replace('OT', ''), format='%M:%S').apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes  
     
@@ -133,6 +131,17 @@ def reformat_data(df):
     df['rounds'] = df['time format'].apply(lambda x: "1" if x == "No Time Limit" else x).str.extract('^(\d+)', expand=False).astype(int)
     df = df.drop('time format', axis=1)
     return df
+
+
+def extract_weightclass(expression):
+    women_weight_class = re.search(r"\b(?:Women's Strawweight|Women's Flyweight|Women's Bantamweight|Women's Featherweight)\b", expression)
+    men_weight_class = re.search(r"\b(?:Flyweight|Bantamweight|Featherweight|Lightweight|Welterweight|Middleweight|Light Heavyweight|Heavyweight|Catch Weight)\b", expression)
+    if women_weight_class:
+        return women_weight_class.group()
+    elif men_weight_class:
+        return men_weight_class.group()
+    else:
+        return "Catch Weight"
 
 
 def add_new_features(df):
@@ -174,7 +183,6 @@ def add_new_features(df):
     for col in accuracy:
         temp_df[col + '_accuracy'] = df[col + '_attempts'] / df[col + '_landed']
 
-    
     for col in differentials:
         differential(df, col)
         
