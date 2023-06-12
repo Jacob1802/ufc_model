@@ -3,18 +3,18 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from typing import List
 from datetime import datetime
-import time
-import re
 
 
 def main():
-    # fights_df = pd.read_csv("fights.csv")
+    try:
+        fights_df = pd.read_csv("data/raw_fight_totals.csv")
+    except FileNotFoundError:
+        extract_fight_details(None)
     # print(fights_df['event'])
 
     # fighters_df = pd.read_csv("fighters.csv")
     # extract_fighter_stats(fighters_df)
-    extract_fight_details(None)
-    
+    extract_fight_details(fights_df)
 
 
 def get_events() -> List[str]:
@@ -32,15 +32,17 @@ def get_events() -> List[str]:
     link = soup.find('a', class_='b-link b-link_style_black')
     
     # Extract the href attribute from each link and append it to event_links
-    # with open('cards.csv', 'r') as f:
-    while link:
-        event = link.text.strip()
-        # if event in f.read():
-        #     return event_links
-        href = link['href']
-        event_links.append(href)
-        link = link.find_next('a', class_='b-link b-link_style_black')
-    
+    with open('data/cards.csv', 'r') as f:
+        cards = f.readlines()
+
+        while link:
+            event = link.text.strip()
+            if event in cards[-1].strip():
+                return event_links[::-1]
+            href = link['href']
+            event_links.append(href)
+            link = link.find_next('a', class_='b-link b-link_style_black')
+            
     return event_links[::-1]
 
 
@@ -73,7 +75,10 @@ def extract_event_details():
 def extract_fight_details(df):
     data = extract_event_details()
     rows = []
-    fight_num = 0
+    if df is not None:
+        fight_num = df.iloc[-1]['fight_num']
+    else:
+        fight_num = 0
     for card in data:
         date = card['date']
         location = card['location']
@@ -140,16 +145,17 @@ def extract_fight_details(df):
             # only total
             
             rows.append(row)
-            
+    
     if df is not None:
         temp = pd.DataFrame(rows)
-        df = pd.concat(df, temp)
+        df = pd.concat([df, temp])
     else:
         df = pd.DataFrame(rows)
     
     # df.to_csv("fights_rbr.csv", index=False)
-    df.to_csv("raw_fight_totals.csv", index=False)
-    df['event'].to_csv("cards.csv", index=False)
+    df.to_csv("data/raw_fight_totals.csv", index=False)
+    unique_events = df["event"].unique()
+    pd.Series(unique_events).to_csv("data/cards.csv", index=False)
 
 
 def totals(stats, header, row):
@@ -203,9 +209,8 @@ def totals(stats, header, row):
             row[f"sig_reg_percent_{i}"] = (row[f"str_landed_{i}"] + row[f"sig_str_landed_{i}"]) / (row[f"str_attempts_{i}"] + row[f"sig_str_attempts_{i}"])
             
     return row
-                
-              
-            
+
+
 def all_stats(stats, row):
     for j in range(len(stats)):
         data = [i for i in stats[j].stripped_strings]
