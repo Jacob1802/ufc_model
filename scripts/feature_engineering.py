@@ -1,6 +1,7 @@
 from sklearn.preprocessing import LabelEncoder
 from future_fights import get_future_matchups
 import pandas as pd
+import numpy as np
 import math
 import sys
 import re
@@ -16,12 +17,13 @@ fighter_ratings = {}
 def main():
     input_file = pd.read_csv("data/raw_fight_totals.csv")
     new = split_dataframe(input_file)
+    
     elo = set_elo(new)
-    new[['elo', 'elo_change']] = elo[['elo', 'elo_change']]
+    new[['curr_elo', 'curr_elo_change', 'future_elo', 'future_elo_change']] = elo[['curr_elo', 'curr_elo_change', 'future_elo', 'future_elo_change']]
     df = reformat_data(new)
-    df = add_new_features(df)
-    df['days_since_last_fight'] = df['days_since_last_fight'].astype(str)
-    df['days_since_last_fight'] = pd.to_numeric(df['days_since_last_fight'].str.replace(' days', ''))
+    predictions_df = add_new_features(df, 0, True)
+    predictions_csv(predictions_df)
+    df = add_new_features(df, 1)
     # Fill NaN values in columns with non-time data types
     dt_excluded_cols = df.select_dtypes(exclude=['timedelta64[ns]'])
     df[dt_excluded_cols.columns] = dt_excluded_cols.fillna(0)
@@ -29,29 +31,105 @@ def main():
     # Fill NaT values in columns with time data types
     dt_cols = df.select_dtypes(include=['timedelta64[ns]'])
     df[dt_cols.columns] = dt_cols.fillna(pd.Timedelta(0))
-    encoder = LabelEncoder()
-    df = df[df['result'].isin(['W', 'L'])]
-    df.insert(3, "fighter_code", encoder.fit_transform(df['fighter']))
-    df.insert(5, "result_code", encoder.fit_transform(df['result']))
-    df.insert(7, "weight_class_code", encoder.fit_transform(df['weight_class']))
+    
+    df['days_since_last_fight'] = df['days_since_last_fight'].astype(str)
+    df['days_since_last_fight'] = pd.to_numeric(df['days_since_last_fight'].str.replace(' days', ''))
+
     joined_df = join_rows(df)
     joined_df.to_csv("data/fights.csv", index=False)
 
 
-def join_rows(df):
+def predictions_csv(df):
+    """
+    Process the predictions dataframe and save the modified version as a CSV file.
+
+    Args:
+        predictions_df (pandas.DataFrame): The dataframe containing predictions data.
+
+    Returns:
+        None
+    """
+
+    # List of columns to exclude from the final dataframe
+    exclude = [
+        'result', 'result_code', 'weight_class', 'method', 'time', 'round_finished', 'sig_str_landed',
+        'sig_str_attempts', 'sig_str_received', 'sig_str_avoided', 'sig_str_percent', 'str_landed',
+        'str_attempts', 'str_received', 'str_avoided', 'str_percent', 'td_landed', 'td_attempts',
+        'td_received', 'td_avoided', 'td_percent', 'kd', 'kd_received', 'sub_att', 'rev', 'ctrl',
+        'sig_reg_mixture', 'sig_reg_percent'
+    ]
+
+    # Get future matchups, date, and weight classes
+    date, matchups, weightclasses = get_future_matchups()
+
+    # Flatten matchups into a list of fighters
+    fighters = [fighter for matchup in matchups for fighter in matchup]
+
+    # Convert date to a pandas Timestamp object
+    date = pd.Timestamp(date)
+
+    # Filter dataframe to include only fighters in the matchups
+    predictions_df = df[df['fighter'].isin(fighters)].copy()
+
+    # Process each matchup
+    for i, matchup in enumerate(matchups):
+        try:
+            # Get the index of the last occurrence of each fighter in the predictions dataframe
+            last_occurrence_f1 = predictions_df.loc[predictions_df['fighter'] == matchup[0]].index[-1]
+            last_occurrence_f2 = predictions_df.loc[predictions_df['fighter'] == matchup[1]].index[-1]
+        except IndexError:
+            # If an IndexError occurs, skip to the next matchup
+            continue
+
+        # Check if both fighters have more than 2 total fights
+        if (
+            predictions_df.loc[last_occurrence_f1, 'total_fights'] > 2 and
+            predictions_df.loc[last_occurrence_f2, 'total_fights'] > 2
+        ):
+            # Set rounds to 5 for the first matchup, if it's the final fight or a title fight
+            if "Title" in weightclasses[i] or i == 0:
+                predictions_df.loc[last_occurrence_f1, 'rounds'] = 5
+                predictions_df.loc[last_occurrence_f2, 'rounds'] = 5
+
+            # Set fight number, weight class, and days since last fight for both fighters
+            predictions_df.loc[last_occurrence_f1, 'fight_num'] = i
+            predictions_df.loc[last_occurrence_f2, 'fight_num'] = i
+            predictions_df.loc[last_occurrence_f1, 'weight_class'] = weightclasses[i].lower().replace(" ", "_").replace("'", "")
+            predictions_df.loc[last_occurrence_f2, 'weight_class'] = weightclasses[i].lower().replace(" ", "_").replace("'", "")
+            predictions_df.loc[last_occurrence_f1, 'days_since_last_fight'] = date - predictions_df.loc[last_occurrence_f1, 'date']
+            predictions_df.loc[last_occurrence_f2, 'days_since_last_fight'] = date - predictions_df.loc[last_occurrence_f2, 'date']
+
+    # # Convert the 'days_since_last_fight' column to string and then numeric
+    # predictions_df['days_since_last_fight'] = predictions_df['days_since_last_fight'].astype(str)
+    # predictions_df['days_since_last_fight'] = pd.to_numeric(predictions_df['days_since_last_fight'].str.replace(' days', ''))
+
+    # Join the rows in the predictions dataframe and drop excluded columns
+    joined_predictions = join_rows(predictions_df, True)
+    joined_predictions = joined_predictions.drop(exclude, axis=1)
+    # Save the joined predictions dataframe as a CSV file
+    joined_predictions.to_csv("data/new.csv", index=False)
+
+
+def join_rows(df, predictions=False):
     grouped = df.groupby('fight_num')
-    exclude = ['opponent_fight_num', 'opponent_date', 'opponent_result', 'opponent_weight_class', 'opponent_method', 'opponent_time', 'opponent_round_finished', 
-               'opponent_rounds']
-    rows = []
-    for idx, group in grouped:
-        row1 = group.iloc[0]
-        row2 = group.iloc[1].rename(lambda x: 'opponent_' + x)
-        rev_row1 = group.iloc[0].rename(lambda x: 'opponent_' + x)
-        rev_row2 = group.iloc[1]
-        rows.append(pd.concat([row1, row2]))
-        rows.append(pd.concat([rev_row2, rev_row1]))
-    
-    new_df = pd.DataFrame(rows).reset_index(drop=True).drop(exclude, axis=1) 
+    exclude = ['opponent_fight_num', 'opponent_date', 'opponent_result', 'opponent_weight_class', 'opponent_weight_class_code', 
+               'opponent_method', 'opponent_time', 'opponent_round_finished', 'opponent_rounds']
+
+    if predictions:
+        rows = [pd.concat([group.iloc[0], group.iloc[1].rename(lambda x: 'opponent_' + x)])
+                for _, group in grouped if len(group) >= 2 and group.iloc[0]['fight_num'] < 13]
+        rows1 = [pd.concat([group.iloc[1], group.iloc[0].rename(lambda x: 'opponent_' + x)])
+                for _, group in grouped if len(group) >= 2 and group.iloc[0]['fight_num'] < 15]
+    else:
+        rows = [pd.concat([group.iloc[0], group.iloc[1].rename(lambda x: 'opponent_' + x)])
+                for _, group in grouped]
+        rows1 = [pd.concat([group.iloc[1], group.iloc[0].rename(lambda x: 'opponent_' + x)])
+                for _, group in grouped]
+        
+    rows.extend(rows1)
+    new_df = pd.DataFrame(rows).reset_index(drop=True)
+    new_df.sort_values(by="fight_num", inplace=True)
+    new_df.drop(exclude, axis=1, inplace=True)
     return new_df
 
 
@@ -78,30 +156,14 @@ def split_dataframe(df):
         row_1 = [row[f"{col}_1"] for col in cols]
         row_2 = [row[f"{col}_2"] for col in cols]
         
-        new_data.append(date_row + fighter_1_row + result_1_row + weightclass_row + method_row + row_1)
         new_data.append(date_row + fighter_2_row + result_2_row + weightclass_row + method_row + row_2)
+        new_data.append(date_row + fighter_1_row + result_1_row + weightclass_row + method_row + row_1)
 
     new_df = pd.DataFrame(new_data, columns=new_columns)
     return new_df
 
 
 def reformat_data(df):
-    ufc_weight_classes = [
-        "men_strawweight",
-        "men_flyweight",
-        "men_bantamweight",
-        "men_featherweight",
-        "men_lightweight",
-        "men_welterweight",
-        "men_middleweight",
-        "men_light_heavyweight",
-        "men_heavyweight",
-        "womens_strawweight",
-        "womens_flyweight",
-        "womens_bantamweight",
-        "womens_featherweight",
-    ]
-
     df['method'] = df['method'].replace({
         "TKO - Doctor's Stoppage": "KO/TKO",
         "Decision - Unanimous": "Decision",
@@ -111,9 +173,6 @@ def reformat_data(df):
         "DQ": "Other",
         "Could Not Continue": "Other"
     })
-    group = df.groupby('fighter')
-    # df['elo'] = group['elo'].shift(1)
-    # df['elo_change'] = group['elo_change'].shift(1)
 
     for col in ["sig_str_percent", "td_percent"]:
         df[col] = df[col].str.strip("%").replace("---", "0").fillna(0).apply(lambda x: int(x) / 100)
@@ -124,7 +183,6 @@ def reformat_data(df):
 
     # Remove any 'OT' occurrences if present and convert to datetime object
     df['time'] = pd.to_datetime(df['time'].str.replace('OT', ''), format='%M:%S').apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes  
-    
     df['ctrl'] = pd.to_datetime(df['ctrl'], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime('00:00:00', format='%H:%M:%S')).apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes
     
     df = df.rename(columns={'round': 'round_finished'})
@@ -144,8 +202,7 @@ def extract_weightclass(expression):
         return "Catch Weight"
 
 
-def add_new_features(df):
-    # encoder = LabelEncoder()
+def add_new_features(df, step, predcitions=False):
     totals = ['kd', 'kd_received','round_finished','sig_str_landed','sig_str_received','sig_str_attempts',
         'sig_str_avoided','str_received','str_attempts', 'str_avoided','str_landed',
         'td_received','td_attempts','td_avoided','td_landed']
@@ -163,32 +220,35 @@ def add_new_features(df):
     
     accuracy = ['sig_str', 'str', 'td']
 
-    methods = ['Decision','KO/TKO','Other','Submission']
     temp_df = pd.DataFrame()
     grouped_fighters = df.groupby('fighter', group_keys=False)
     
-    # temp_df['fighter_code'] = encoder.fit_transform(df['fighter'])
     temp_df['fighter'] = df['fighter']
     temp_df['fight_num'] = df['fight_num']
-    temp_df['num_fights'] = grouped_fighters.cumcount().shift(1)
-    df['total_fight_time'] = grouped_fighters['time'].cumsum()
-    temp_df['days_since_last_fight'] = grouped_fighters['date'].apply(lambda x: x - x.shift(1)).fillna(pd.Timedelta(0))
+    df['total_fight_time'] = grouped_fighters['time'].cumsum().shift(step)
+    temp_df['days_since_last_fight'] = grouped_fighters['date'].apply(lambda x: x - x.shift(step))
+    temp_df['total_fights'] = grouped_fighters.cumcount() - step + 1
     
     # Total wins, losses & w/l by decison, ko, sub, other
     for result in ["W", "L"]:
-        temp_df["total_" + result.lower()] = grouped_fighters.apply(lambda x: (x['result'] == result).shift(1).cumsum())
-        for method in methods:
-            temp_df[result.lower() + "_" + method.lower()] = grouped_fighters.apply(lambda x: ((x['result'] == result) & (x['method'] == method)).shift(1).cumsum())
+        temp_df["total_" + result.lower()] = grouped_fighters.apply(lambda x: (x['result'] == result).shift(step).cumsum())
+        for method in ['Decision','KO/TKO','Other','Submission']:
+            temp_df[result.lower() + "_" + method.lower()] = grouped_fighters.apply(lambda x: ((x['result'] == result) & (x['method'] == method)).shift(step).cumsum())
 
     for col in accuracy:
-        temp_df[col + '_accuracy'] = df[col + '_attempts'] / df[col + '_landed']
+        # total accuracy score
+        temp_df[col + '_accuracy'] = grouped_fighters[col + '_landed'].cumsum().shift(step) / grouped_fighters[col + '_attempts'].cumsum().shift(step)
 
     for col in differentials:
         differential(df, col)
         
     for col in lags + ['sig_str_landed_differential', 'str_landed_differential']:
-        for i in range(1, 4):
-            lag(df, col, i)
+        if predcitions:
+            for i in range(0, 3):
+                lag(df, col, i, predcitions)
+        else:
+            for i in range(1, 4):
+                lag(df, col, i)
         
         calculate_weighted_avg(df, col)
         calculate_avg(df, col)
@@ -196,10 +256,10 @@ def add_new_features(df):
     for col in totals:
         if col == "round_finished":
             df["foo"] = grouped_fighters[col].cumsum()
-            temp_df['total_rounds'] = grouped_fighters['foo'].shift(1)
+            temp_df['total_rounds'] = grouped_fighters['foo'].shift(step)
         else:
             df["foo1"] = grouped_fighters[col].cumsum()
-            temp_df["total_" + col] = grouped_fighters['foo1'].shift(1)
+            temp_df["total_" + col] = grouped_fighters['foo1'].shift(step)
             
     df = df.drop(['foo', 'foo1'], axis=1)
 
@@ -212,8 +272,9 @@ def add_new_features(df):
         # Iterate over rows in the group
         for index, row in group.iterrows():
             # Update streak columns for the current row
-            temp_df.at[index, 'win_streak'] = current_win_streak
-            temp_df.at[index, 'loss_streak'] = current_loss_streak
+            if step != 0:
+                temp_df.at[index, 'win_streak'] = current_win_streak
+                temp_df.at[index, 'loss_streak'] = current_loss_streak
             if row['result'] == 'W':
                 # Increment win streak and reset loss streak
                 current_win_streak += 1
@@ -225,16 +286,22 @@ def add_new_features(df):
             else:
                 current_win_streak = 0
                 current_loss_streak = 0
-                
+            if step == 0:
+                temp_df.at[index, 'win_streak'] = current_win_streak
+                temp_df.at[index, 'loss_streak'] = current_loss_streak
+    
+    encoder = LabelEncoder()
+    df = df[df['result'].isin(['W', 'L'])]
     df = df.merge(temp_df, on=['fighter', 'fight_num'])
-    df['total_fight_time'] = grouped_fighters['total_fight_time'].shift(1)
+    df.insert(4, 'result_code', encoder.fit_transform(df['result']))
+    df['fighter_code'] = encoder.fit_transform(df['fighter'])
+    df['weight_class_code'] = encoder.fit_transform(df['weight_class'])
     return df
 
 
 def calculate_avg(df, column):
     df['avg_' + column + "_per_min"] = df[column] / df['total_fight_time']
     df['avg_' + column + "_per_min"] = df.groupby('fighter')['avg_' + column + "_per_min"].shift(1)
-    # df['avg_' + column + "_per_min"] = df.groupby('fighter')[column] / df.groupby('fighter')['total_fight_time']
 
 
 def differential(df, column):
@@ -250,8 +317,11 @@ def differential(df, column):
     df[column + "_differential"] = differ.astype(float)
 
 
-def lag(df, column, step):
-    df[column + '_lag' + str(step)] = df.groupby('fighter')[column].shift(step).fillna(0).astype(int)
+def lag(df, column, step, predictions=False):
+    if predictions:
+        df[column + '_lag' + str(step + 1)] = df.groupby('fighter')[column].shift(step).fillna(0).astype(int)
+    else:
+        df[column + '_lag' + str(step)] = df.groupby('fighter')[column].shift(step).fillna(0).astype(int)
 
 
 def calculate_weighted_avg(df, column):
@@ -315,20 +385,23 @@ def set_elo(df):
             fighter_ratings[winner] = winner_new_rating
             fighter_ratings[loser] = loser_new_rating
             if row_1['fighter'] == winner:
-                row_1['elo'] = winner_new_rating
-                row_1['elo_change'] = winner_new_rating - winner_rating
-                row_2['elo'] = loser_new_rating
-                row_2['elo_change'] = loser_new_rating - loser_rating
+                row_1['future_elo'] = winner_new_rating
+                row_1['future_elo_change'] = winner_new_rating - winner_rating
+                row_2['future_elo'] = loser_new_rating
+                row_2['future_elo_change'] = loser_new_rating - loser_rating
             elif row_2['fighter'] == winner:
-                row_1['elo'] = winner_new_rating
-                row_1['elo_change'] = winner_new_rating - winner_rating
-                row_2['elo'] = loser_new_rating
-                row_2['elo_change'] = loser_new_rating - loser_rating
+                row_1['future_elo'] = winner_new_rating
+                row_1['future_elo_change'] = winner_new_rating - winner_rating
+                row_2['future_elo'] = loser_new_rating
+                row_2['future_elo_change'] = loser_new_rating - loser_rating
         
         rows.append(row_1)
         rows.append(row_2)
     
     elo_table = pd.DataFrame(rows)
+    group = elo_table.groupby('fighter')
+    elo_table['curr_elo'] = group['future_elo'].shift(1)
+    elo_table['curr_elo_change'] = group['future_elo_change'].shift(1)
     return elo_table
 
 
