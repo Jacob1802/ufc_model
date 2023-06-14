@@ -19,14 +19,26 @@ def get_future_matchups():
     event_link = get_next_event_link()
     response = requests.get(event_link)
     soup = BeautifulSoup(response.content, 'html.parser')
-    fighters = soup.find_all('a', class_="b-link b-link_style_black")
+    fighters = [fighter.text.strip() for fighter in soup.find_all('a', class_="b-link b-link_style_black")]
+    list_items = soup.find_all('li', class_='b-list__box-list-item')
+    weightclass_column = []
     matchups = []
     
-    for i in range(0, len(fighters), 3): # step by 2 for past fights, 3 for future fights
-        matchup = (fighters[i].text.strip(), fighters[i+1].text.strip())
+    for row in soup.find_all('tr'):
+        cells = row.find_all('td')
+        if len(cells) > 0 and cells[6].text != 'Weight class':
+            weightclass_column.append(cells[6].text.strip())
+
+    for item in list_items:
+        if 'Date:' in item.text:
+            date = item.text.replace('Date:', '').strip()
+            break
+        
+    for i in range(0, len(fighters), 3): # 3 for future fights
+        matchup = (fighters[i], fighters[i+1])
         matchups.append(matchup)
         
-    return matchups
+    return (date, matchups, weightclass_column)
 
 
 if __name__ == "__main__":
