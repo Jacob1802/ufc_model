@@ -26,7 +26,10 @@ def get_future_matchups():
     for row in soup.find_all('tr'):
         cells = row.find_all('td')
         if len(cells) > 0 and cells[6].text != 'Weight class':
-            weightclass_column.append(cells[6].text.strip())
+            if row.find('img'):
+                weightclass_column.append(cells[6].text.strip() + " Title")
+            else:
+                weightclass_column.append(cells[6].text.strip())
 
     for item in list_items:
         if 'Date:' in item.text:
