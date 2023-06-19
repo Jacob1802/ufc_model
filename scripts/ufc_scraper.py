@@ -3,6 +3,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from typing import List
 from datetime import datetime
+import sys
 
 
 def main():
@@ -10,10 +11,8 @@ def main():
         fights_df = pd.read_csv("data/raw_fight_totals.csv")
     except FileNotFoundError:
         extract_fight_details(None)
-    # print(fights_df['event'])
-
-    # fighters_df = pd.read_csv("fighters.csv")
-    # extract_fighter_stats(fighters_df)
+    
+    # extract_fighter_stats()
     extract_fight_details(fights_df)
 
 
@@ -161,7 +160,7 @@ def extract_fight_details(df):
 def totals(stats, header, row):
     # Pair stats with headers
     pairs = zip(stats[::2], stats[1::2], header)
-
+    
     # Iterate through the pairs
     for pair in pairs:
         item1, item2, key = pair
@@ -273,8 +272,8 @@ def get_fighter_links() -> List[str]:
     alphabet = [chr(i) for i in range(ord('a'), ord('z')+1)]
     fighter_links = set()
     for letter in alphabet:
-        # url = f"http://www.ufcstats.com/statistics/fighters?char={letter}&page=all"
-        url = "http://www.ufcstats.com/statistics/fighters"
+        url = f"http://www.ufcstats.com/statistics/fighters?char={letter}&page=all"
+        # url = "http://www.ufcstats.com/statistics/fighters"
         session = requests.Session()
         response = session.get(url)
         soup = BeautifulSoup(response.content, "html.parser")
@@ -297,9 +296,8 @@ def extract_fighter_stats():
         soup = BeautifulSoup(response.content, "html.parser")
         name = soup.find("span", class_="b-content__title-highlight").text.strip()
         record = soup.find("span", class_="b-content__title-record").text.strip()
-
+        
         row = {"fighter" : name, "mma_record" : record}
-        foo = soup.find("tr", class_="b-fight-details__table-row b-fight-details__table-row__hover js-fight-details-click")
 
         # extract the attributes from the list items
         for stat in soup.find_all("li", class_="b-list__box-list-item b-list__box-list-item_type_block"):
@@ -316,10 +314,7 @@ def extract_fighter_stats():
                         value = get_weightclass(value)
                     elif key == "DOB":
                         # Convert date string to datetime object
-                        dob = datetime.strptime(value, '%b %d, %Y').date()
-                        # Calculate age
-                        value = (datetime.now().date() - dob).days // 365
-                        key = "age"
+                        value = datetime.strptime(value, '%b %d, %Y').date()
                     elif key == "SLpM":
                         key = "sig_str_per_min"
                     elif key == "Str. Acc.":
@@ -332,17 +327,14 @@ def extract_fighter_stats():
                         key = "td_avg"
                     elif key in ["TD Acc.", "TD Def.", "Sub. Avg."]:
                         key = key.lower().replace(" ", "_").replace(".", "")
-                        
+                
                 row[key.lower()] = value
 
         rows.append(row)
     
     df = pd.DataFrame(rows)
-    if 'dob' in df.columns:
-        df.drop('dob', axis=1, inplace=True)
-    
     df = df.sort_values('fighter')
-    df.to_csv("fighters.csv", index=False)
+    df.to_csv("data/fighter_stats.csv", index=False)
 
 
 def get_weightclass(weight):
