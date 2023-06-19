@@ -5,7 +5,6 @@ from typing import List
 
 def get_next_event_link() -> List[str]:
     url = "http://www.ufcstats.com/statistics/events/upcoming"
-    # url = "http://www.ufcstats.com/statistics/events/completed"
     response = requests.get(url)
     soup = BeautifulSoup(response.content, "html.parser")
     # Find all links on the page with the soup BeautifulSoup('a', class_ 'b-link b-link_style_black'
@@ -34,7 +33,7 @@ def get_future_matchups():
             date = item.text.replace('Date:', '').strip()
             break
         
-    for i in range(0, len(fighters), 3): # 3 for future fights
+    for i in range(0, len(fighters), 3):
         matchup = (fighters[i], fighters[i+1])
         matchups.append(matchup)
         
