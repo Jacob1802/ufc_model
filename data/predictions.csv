@@ -1,0 +1,13 @@
+fight_num,fighter,prediction,confidence,prediction_code,sig_str,kd,td,rev,sub_att
+0,Josh Emmett,L,0.62,0,65.0,0.0,1.0,0.0,0.0
+0,Ilia Topuria,W,0.76,1,69.0,0.0,1.0,0.0,0.0
+1,Maycee Barber,W,0.52,1,46.0,0.0,1.0,0.0,0.0
+1,Amanda Ribas,L,0.63,0,49.0,0.0,1.0,0.0,0.0
+4,Bruno Silva,W,0.53,1,33.0,0.0,1.0,0.0,0.0
+4,Brendan Allen,W,0.7,1,40.0,0.0,1.0,0.0,1.0
+5,Neil Magny,L,0.55,0,54.0,0.0,2.0,0.0,0.0
+5,Phil Rowe,W,0.75,1,32.0,0.0,0.0,0.0,0.0
+6,Randy Brown,L,0.57,0,55.0,0.0,0.0,0.0,0.0
+6,Wellington Turman,L,0.55,0,36.0,0.0,1.0,0.0,1.0
+8,Gillian Robertson,L,0.52,0,32.0,0.0,1.0,0.0,0.0
+8,Tabatha Ricci,L,0.51,0,41.0,0.0,2.0,0.0,0.0
