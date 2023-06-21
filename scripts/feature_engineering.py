@@ -1,18 +1,14 @@
 from sklearn.preprocessing import LabelEncoder
 from future_fights import get_future_matchups
 import pandas as pd
-import numpy as np
 import math
-import sys
 import re
 
-K = 32 # Maximum change in rating
 INITIAL_RATING = 1200 # Starting rating for new fighters
 
 # Dictionary to store each fighter's rating
 fighter_ratings = {}
 
-# get age
 
 def main():
     input_file = pd.read_csv("data/raw_fight_totals.csv")
@@ -61,16 +57,12 @@ def predictions_csv(df):
 
     # Get future matchups, date, and weight classes
     date, matchups, weightclasses = get_future_matchups()
-
     # Flatten matchups into a list of fighters
     fighters = [fighter for matchup in matchups for fighter in matchup]
-
     # Convert date to a pandas Timestamp object
     date = pd.Timestamp(date)
-
     # Filter dataframe to include only fighters in the matchups
     predictions_df = df[df['fighter'].isin(fighters)].copy()
-
     # Process each matchup
     for i, matchup in enumerate(matchups):
         try:
@@ -80,7 +72,7 @@ def predictions_csv(df):
         except IndexError:
             # If an IndexError occurs, skip to the next matchup
             continue
-
+        
         # Check if both fighters have more than 2 total fights
         if (
             predictions_df.loc[last_occurrence_f1, 'total_fights'] > 2 and
@@ -91,23 +83,23 @@ def predictions_csv(df):
                 predictions_df.loc[last_occurrence_f1, 'rounds'] = 5
                 predictions_df.loc[last_occurrence_f2, 'rounds'] = 5
 
-            # Set fight number, weight class, and days since last fight for both fighters
+            # Set fight numb, weight class, days since last fight and age for both fighters
             predictions_df.loc[last_occurrence_f1, 'fight_num'] = i
             predictions_df.loc[last_occurrence_f2, 'fight_num'] = i
             predictions_df.loc[last_occurrence_f1, 'weight_class'] = weightclasses[i].lower().replace(" ", "_").replace("'", "")
             predictions_df.loc[last_occurrence_f2, 'weight_class'] = weightclasses[i].lower().replace(" ", "_").replace("'", "")
             predictions_df.loc[last_occurrence_f1, 'days_since_last_fight'] = date - predictions_df.loc[last_occurrence_f1, 'date']
             predictions_df.loc[last_occurrence_f2, 'days_since_last_fight'] = date - predictions_df.loc[last_occurrence_f2, 'date']
-
-    # # Convert the 'days_since_last_fight' column to string and then numeric
-    # predictions_df['days_since_last_fight'] = predictions_df['days_since_last_fight'].astype(str)
-    # predictions_df['days_since_last_fight'] = pd.to_numeric(predictions_df['days_since_last_fight'].str.replace(' days', ''))
+            dob1 = predictions_df.loc[last_occurrence_f1, 'dob']
+            dob2 = predictions_df.loc[last_occurrence_f2, 'dob']
+            predictions_df.loc[last_occurrence_f1, 'age'] = (date - dob1).days // 365
+            predictions_df.loc[last_occurrence_f2, 'age'] = (date - dob2).days // 365
 
     # Join the rows in the predictions dataframe and drop excluded columns
     joined_predictions = join_rows(predictions_df, True)
     joined_predictions = joined_predictions.drop(exclude, axis=1)
     # Save the joined predictions dataframe as a CSV file
-    joined_predictions.to_csv("data/new.csv", index=False)
+    joined_predictions.to_csv("data/prediction_data.csv", index=False)
 
 
 def join_rows(df, predictions=False):
@@ -115,18 +107,27 @@ def join_rows(df, predictions=False):
     exclude = ['opponent_fight_num', 'opponent_date', 'opponent_result', 'opponent_weight_class', 'opponent_weight_class_code', 
                'opponent_method', 'opponent_time', 'opponent_round_finished', 'opponent_rounds']
 
+    rows = []
+
     if predictions:
-        rows = [pd.concat([group.iloc[0], group.iloc[1].rename(lambda x: 'opponent_' + x)])
-                for _, group in grouped if len(group) >= 2 and group.iloc[0]['fight_num'] < 13]
-        rows1 = [pd.concat([group.iloc[1], group.iloc[0].rename(lambda x: 'opponent_' + x)])
-                for _, group in grouped if len(group) >= 2 and group.iloc[0]['fight_num'] < 15]
+        for _, group in grouped:
+            if len(group) >= 2 and group.iloc[0]['fight_num'] < 15:
+                row1 = group.iloc[1]
+                row2 = group.iloc[0]
+                merged_row = pd.concat([row1, row2.rename(lambda x: 'opponent_' + x)])
+                merged_row1 = pd.concat([row2, row1.rename(lambda x: 'opponent_' + x)])
+                rows.append(merged_row)
+                rows.append(merged_row1)
     else:
-        rows = [pd.concat([group.iloc[0], group.iloc[1].rename(lambda x: 'opponent_' + x)])
-                for _, group in grouped]
-        rows1 = [pd.concat([group.iloc[1], group.iloc[0].rename(lambda x: 'opponent_' + x)])
-                for _, group in grouped]
-        
-    rows.extend(rows1)
+        for _, group in grouped:
+            if len(group) >= 2:
+                row1 = group.iloc[0]
+                row2 = group.iloc[1]
+                merged_row = pd.concat([row1, row2.rename(lambda x: 'opponent_' + x)])
+                merged_row1 = pd.concat([row2, row1.rename(lambda x: 'opponent_' + x)])
+                rows.append(merged_row)
+                rows.append(merged_row1)
+    
     new_df = pd.DataFrame(rows).reset_index(drop=True)
     new_df.sort_values(by="fight_num", inplace=True)
     new_df.drop(exclude, axis=1, inplace=True)
@@ -177,14 +178,14 @@ def reformat_data(df):
     for col in ["sig_str_percent", "td_percent"]:
         df[col] = df[col].str.strip("%").replace("---", "0").fillna(0).apply(lambda x: int(x) / 100)
     
-
+    
     df['date'] = pd.to_datetime(df['date']).fillna(pd.Timedelta(0))
     df['weight_class'] = df['weight_class'].apply(extract_weightclass).str.strip().str.lower().str.replace(" ", "_").replace("'", "")
 
-    # Remove any 'OT' occurrences if present and convert to datetime object
-    df['time'] = pd.to_datetime(df['time'].str.replace('OT', ''), format='%M:%S').apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes  
-    df['ctrl'] = pd.to_datetime(df['ctrl'], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime('00:00:00', format='%H:%M:%S')).apply(convert_to_minutes).fillna(pd.Timedelta(0)) # Convert to minutes
-    
+    # Remove any 'OT' occurrences if present and convert to datetime object  
+    df['time'] = pd.to_datetime(df['time'].str.replace('OT', ''), format='%M:%S').apply(convert_to_minutes) # Convert to minutes  
+    df['ctrl'] = pd.to_datetime(df['ctrl'], format='%H:%M:%S', errors='coerce').fillna(pd.to_datetime('00:00:00', format='%H:%M:%S')).apply(convert_to_minutes) # Convert to minutes
+   
     df = df.rename(columns={'round': 'round_finished'})
     df['rounds'] = df['time format'].apply(lambda x: "1" if x == "No Time Limit" else x).str.extract('^(\d+)', expand=False).astype(int)
     df = df.drop('time format', axis=1)
@@ -290,12 +291,34 @@ def add_new_features(df, step, predcitions=False):
                 temp_df.at[index, 'win_streak'] = current_win_streak
                 temp_df.at[index, 'loss_streak'] = current_loss_streak
     
+    fighters_df = pd.read_csv("data/fighter_stats.csv")
+
+    merged_df = pd.merge(df.copy(), fighters_df, on='fighter')
+    merged_df['dob'] = pd.to_datetime(merged_df['dob'])
+    merged_df['date'] = pd.to_datetime(merged_df['date'])
+    merged_df['age'] = (merged_df['date'] - merged_df['dob']).dt.days // 365
+    # Select columns from df
+    merged_df = merged_df[['fight_num', 'fighter', 'height', 'reach', 'stance', 'age', 'dob']]
+
+    # Merge with the original dataframe
+    df = df.merge(merged_df, on=['fighter', 'fight_num'])
+    df = df.merge(temp_df, on=['fighter', 'fight_num'])
+    # Take mean of reach and height to fill na values in the respective weight class
+    weight_classes = ['catch_weight', "flyweight", "bantamweight", "featherweight", "lightweight", "welterweight", "middleweight", "light_heavyweight", "heavyweight", "women's_strawweight", "women's_flyweight", "women's_bantamweight", "women's_featherweight"]
+    for col in ['reach', 'height']:
+        for weight_class in weight_classes:
+            sliced_df = df[df['weight_class'] == weight_class]
+            df.loc[df['weight_class'] == weight_class, col] = df.loc[df['weight_class'] == weight_class, col].fillna(round(sliced_df[col].mean()))
+    # Fill na vals with mean age
+    df['age'] = df['age'].fillna(round(df['age'].mean()))
+    
     encoder = LabelEncoder()
     df = df[df['result'].isin(['W', 'L'])]
-    df = df.merge(temp_df, on=['fighter', 'fight_num'])
     df.insert(4, 'result_code', encoder.fit_transform(df['result']))
     df['fighter_code'] = encoder.fit_transform(df['fighter'])
     df['weight_class_code'] = encoder.fit_transform(df['weight_class'])
+    df['stance_code'] = encoder.fit_transform(df['stance'])
+
     return df
 
 
@@ -350,6 +373,7 @@ def calculate_expected_win_probability(rating1, rating2):
 
 def update_ratings(winner, loser):
     """ Update the ratings of the winner and loser based on the outcome of their fight. """
+    K = 32 # Maximum change in rating
     winner_rating = fighter_ratings.get(winner, INITIAL_RATING)
     loser_rating = fighter_ratings.get(loser, INITIAL_RATING)
     expected_win_probability = calculate_expected_win_probability(winner_rating, loser_rating)
@@ -365,6 +389,7 @@ def set_elo(df):
         other = False
         row_1 = {'fight_num' : group_i, 'fighter' : group_df.iloc[0]['fighter']}
         row_2 = {'fight_num' : group_i, 'fighter' : group_df.iloc[1]['fighter']}
+        
         if group_df.iloc[0]['result'] == "W":
             winner = group_df.iloc[0]['fighter']
             loser = group_df.iloc[1]['fighter']
@@ -373,28 +398,32 @@ def set_elo(df):
             loser = group_df.iloc[0]['fighter']
         else:
             other = True
-            row_1['elo'] = fighter_ratings.get(group_df.iloc[0]['fighter'])
-            row_1['elo_change'] = 0
-            row_2['elo'] = fighter_ratings.get(group_df.iloc[1]['fighter'])
-            row_2['elo_change'] = 0
+            row_1['future_elo'] = fighter_ratings.get(group_df.iloc[0]['fighter'], INITIAL_RATING)
+            row_1['future_elo_change'] = 0
+            row_2['future_elo'] = fighter_ratings.get(group_df.iloc[1]['fighter'], INITIAL_RATING)
+            row_2['future_elo_change'] = 0
             
         if not other:
-            winner_rating = fighter_ratings.get(winner, 1200)
-            loser_rating = fighter_ratings.get(loser, 1200)
+            winner_rating = fighter_ratings.get(winner, INITIAL_RATING)
+            loser_rating = fighter_ratings.get(loser, INITIAL_RATING)
             winner_new_rating, loser_new_rating = update_ratings(winner, loser)
             fighter_ratings[winner] = winner_new_rating
             fighter_ratings[loser] = loser_new_rating
             if row_1['fighter'] == winner:
+                
                 row_1['future_elo'] = winner_new_rating
                 row_1['future_elo_change'] = winner_new_rating - winner_rating
+                
                 row_2['future_elo'] = loser_new_rating
                 row_2['future_elo_change'] = loser_new_rating - loser_rating
             elif row_2['fighter'] == winner:
-                row_1['future_elo'] = winner_new_rating
-                row_1['future_elo_change'] = winner_new_rating - winner_rating
-                row_2['future_elo'] = loser_new_rating
-                row_2['future_elo_change'] = loser_new_rating - loser_rating
-        
+                
+                row_1['future_elo'] = loser_new_rating
+                row_1['future_elo_change'] = loser_new_rating - loser_rating
+                
+                row_2['future_elo'] = winner_new_rating
+                row_2['future_elo_change'] = winner_new_rating - winner_rating
+                
         rows.append(row_1)
         rows.append(row_2)
     
@@ -402,6 +431,12 @@ def set_elo(df):
     group = elo_table.groupby('fighter')
     elo_table['curr_elo'] = group['future_elo'].shift(1)
     elo_table['curr_elo_change'] = group['future_elo_change'].shift(1)
+
+    # Set the first occurrence of each fighter in 'curr_elo' to 1200
+    first_occurrences = elo_table.groupby('fighter').head(1).index
+    elo_table.loc[first_occurrences, 'curr_elo'] = 1200
+    elo_table.loc[first_occurrences, 'curr_elo_change'] = 0
+    
     return elo_table
 
 
