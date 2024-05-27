@@ -6,7 +6,7 @@ import requests
 import sys
 
 class UfcScraper:
-    def get_event_links(self) -> List[str]:
+    def get_event_urls(self) -> List[str]:
         """
         Extacts url of UFC events from ufcstats.com
 
@@ -26,42 +26,60 @@ class UfcScraper:
             cards = f.readlines()
         last_card = cards[-1].strip() if cards else ""
 
-        event_links = []
+        event_urls = []
         while url:
             event = url.text.strip()
             if event == last_card:
                 break
             href = url['href']
-            event_links.append(href)
+            event_urls.append(href)
             # Find next url
             url = url.find_next('a', class_='b-link b-link_style_black')
                     
-        return event_links[::-1]
+        return event_urls[::-1]
 
 
     def get_event_details(self):
-        event_links = self.get_event_links()
+        """
+        Extracts detailed information about UFC events from event URLs.
+
+        This method retrieves event URLs using the `get_event_urls` method, then
+        iterates over each URL to fetch detailed information about the event, including
+        event metadata and fight details. The details are parsed from the HTML content
+        of the event pages and returned as a list of dictionaries.
+
+        Returns:
+            List[dict]: A list of dictionaries, each containing details of an event.
+        """
+        # Get a list of event urls
+        event_urls = self.get_event_urls()
         rows = []
-        for event in event_links:
-            links = []
+
+        # Iterate over each event url to fetch event details
+        for event in event_urls:
+            # Fetch the event page
             response = requests.get(event)
             soup = BeautifulSoup(response.content, "html.parser")
-            event = soup.find("span", class_="b-content__title-highlight").text.strip()
-            row = {"event" : event}
             
+            # Extract the event name
+            event = soup.find("span", class_="b-content__title-highlight").text.strip()
+            row = {"event": event}
+            
+            # Extract other event metadata
             for li in soup.find_all("li", class_="b-list__box-list-item"):
                 title = li.find("i").text.strip()
                 value = li.text.strip().replace(title, "").strip()
                 row[title.replace(":", "").lower()] = value
             
-            fight_links = soup.find_all("tr", class_="b-fight-details__table-row b-fight-details__table-row__hover js-fight-details-click")
-            for fight in fight_links:
-                fight_details = fight['data-link']
-                links.append(fight_details)
+            raw_fight_data = soup.find_all("tr", class_="b-fight-details__table-row b-fight-details__table-row__hover js-fight-details-click")
+            # Extract fight urls
+            fight_urls = [data['data-link'] for data in raw_fight_data]
             
-            row['fight_details'] = links[::-1]
+            # Add the list of fight urls to the event row
+            row['fight_urls'] = fight_urls[::-1]
             rows.append(row)
-            
+        
+        # Return the list of event details
         return rows
 
 
@@ -72,12 +90,13 @@ class UfcScraper:
             fight_num = df.iloc[-1]['fight_num']
         else:
             fight_num = 0
+        
         for card in data:
             date = card['date']
             location = card['location']
             event = card['event']
             print(event)
-            for i, fight in enumerate(card['fight_details'], start=1):
+            for i, fight in enumerate(card['fight_urls'], start=1):
                 fight_num += 1
                 row = {"fight_num" : fight_num, "date": date, "location": location, "event" : event}
                 response = requests.get(fight)
