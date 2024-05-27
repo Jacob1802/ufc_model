@@ -7,31 +7,35 @@ import sys
 
 class UfcScraper:
     def get_event_links(self) -> List[str]:
-        """Extacts event links from ufcstats.com
+        """
+        Extacts url of UFC events from ufcstats.com
 
         Returns:
             List[str]: links to ufc events
         """
-        event_links = []
-        url = "http://www.ufcstats.com/statistics/events/completed?page=all"
-        # url = "http://www.ufcstats.com/statistics/events/completed"
-        response = requests.get(url)
+        target_url = "http://www.ufcstats.com/statistics/events/completed?page=all"
+        # target_url = "http://www.ufcstats.com/statistics/events/completed"
+        response = requests.get(target_url)
         soup = BeautifulSoup(response.content, "html.parser")
-        # Find all links on the page with the class 'b-link b-link_style_black'
-        link = soup.find('a', class_='b-link b-link_style_black')
+
+        # Find first event url
+        url = soup.find('a', class_='b-link b-link_style_black')
         
-        # Extract the href attribute from each link and append it to event_links
+        # Read the last card from the file
         with open('data/cards.csv', 'r') as f:
             cards = f.readlines()
+        last_card = cards[-1].strip() if cards else ""
 
-        while link:
-            event = link.text.strip()
-            if event in cards[-1].strip():
-                return event_links[::-1]
-            href = link['href']
+        event_links = []
+        while url:
+            event = url.text.strip()
+            if event == last_card:
+                break
+            href = url['href']
             event_links.append(href)
-            link = link.find_next('a', class_='b-link b-link_style_black')
-            
+            # Find next url
+            url = url.find_next('a', class_='b-link b-link_style_black')
+                    
         return event_links[::-1]
 
 
