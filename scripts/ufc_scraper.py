@@ -7,9 +7,10 @@ import requests
 
 
 class UfcScraper:
-    def __init__(self, last_event: str, last_fight: Tuple[str, str]):
-        self.last_event = last_event
-        self.last_fight = last_fight
+    # Read the last card from the file
+    with open('data/cards.txt', 'r') as f:
+        cards = f.readlines()
+    last_event = cards[-1].strip() if cards else ""
     
     def get_event_urls(self) -> List[str]:
         """
@@ -425,60 +426,49 @@ class UfcScraper:
             
         return (date, matchups, weightclass_column)
 
-
-def main():
-    try:
-        fights_df = pd.read_csv("data/raw_fight_totals.csv")
-    except FileNotFoundError:
-        fights_df = None
-
-    # Determine the starting fight number
-    fight_num = fights_df.iloc[-1]['fight_num'] if not fights_df.empty else 0
-    last_fight = (fights_df.iloc[-1]['fighter_1'], fights_df.iloc[-1]['fighter_2']) if not fights_df.empty else None
-    # Read the last card from the file
-    with open('data/cards.txt', 'r') as f:
-        cards = f.readlines()
-    last_event = cards[-1].strip() if cards else ""
-
-    scraper = UfcScraper(last_event, last_fight)
-
-    urls = scraper.get_event_urls()
+    def process_events(self):
+        try:
+            fights_df = pd.read_csv("data/raw_fight_totals.csv")
+            # Determine the starting fight number
+            fight_num = fights_df.iloc[-1]['fight_num']
+        except FileNotFoundError:
+            fights_df = None
+            fight_num = 0
     
-    rows = []
-    events = []
-    try:
-        for url in urls:
-            event_data = scraper.get_event_details(url)
-            # Iterate over each fight URL in the event
-            date = event_data['date']
-            location = event_data['location']
-            event = event_data['event']
-            print(event)
-            for i, fight_url in enumerate(event_data['fight_urls']):
-                fight_num += 1
-                result = scraper.get_fight_details(fight_url, event, date, location, fight_num)
-                rows.append(result)
-            
-            events.append(event)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Remove rows from uncompleted events
-        length = len(rows)
-        rows = rows[:length-i]
-        # Combine new data with existing DataFrame
-        if not fights_df.empty:
-            temp = pd.DataFrame(rows)
-            fights_df = pd.concat([fights_df, temp])
-        else:
-            fights_df = pd.DataFrame(rows)
-            
-        # Save the updated DataFrame to CSV
-        fights_df.to_csv("data/raw_fight_totals.csv", index=False)
-        # Write the last card to a txt
-        with open("data/cards.txt", "a") as file:
-            for event in events:
-                file.write(f"{event}\n")
-
-if __name__ == "__main__":
-    main()
+        urls = self.get_event_urls()
+    
+        rows = []
+        events = []
+        try:
+            for url in urls:
+                event_data = self.get_event_details(url)
+                # Iterate over each fight URL in the event
+                date = event_data['date']
+                location = event_data['location']
+                event = event_data['event']
+                print(event)
+                for i, fight_url in enumerate(event_data['fight_urls']):
+                    fight_num += 1
+                    result = self.get_fight_details(fight_url, event, date, location, fight_num)
+                    rows.append(result)
+                
+                events.append(event)
+        except KeyboardInterrupt:
+            print("Interrupted")
+        finally:
+            # Remove rows from uncompleted events
+            length = len(rows)
+            rows = rows[:length-i]
+            # Combine new data with existing DataFrame
+            if not fights_df.empty:
+                temp = pd.DataFrame(rows)
+                fights_df = pd.concat([fights_df, temp])
+            else:
+                fights_df = pd.DataFrame(rows)
+                
+            # Save the updated DataFrame to CSV
+            fights_df.to_csv("data/raw_fight_totals.csv", index=False)
+            # Write the last card to a txt
+            with open("data/cards.txt", "a") as file:
+                for event in events:
+                    file.write(f"{event}\n")
