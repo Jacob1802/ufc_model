@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from datetime import datetime
 from typing import Tuple, List, Dict
+from scripts.utils import get_weightclass, inch_to_cm
 import pandas as pd
 import requests
 
@@ -336,9 +337,9 @@ class UfcScraper:
                     
                     if value is not None:
                         if key in ["Height", "Reach"]:
-                            value = self.inch_to_cm(value)
+                            value = inch_to_cm(value)
                         elif key == "Weight":
-                            value = self.get_weightclass(value)
+                            value = get_weightclass(value)
                         elif key == "DOB":
                             # Convert date string to datetime object
                             value = datetime.strptime(value, '%b %d, %Y').date()
@@ -362,53 +363,6 @@ class UfcScraper:
         df = pd.DataFrame(rows)
         df = df.sort_values('fighter')
         df.to_csv("data/fighter_stats.csv", index=False)
-
-
-    def get_weightclass(self, weight: str) -> str:
-        """
-        Converts a given weight in pounds to its corresponding weight class.
-
-        Args:
-            weight (str): Weight in pounds (e.g., '154 lbs.').
-
-        Returns:
-            str: The corresponding weight class (e.g., 'Featherweight').
-        """
-        weight = int(weight.rstrip(" lbs."))
-        weight_classes = {
-            134: "Flyweight",
-            144: "Bantamweight",
-            154: "Featherweight",
-            169: "Lightweight",
-            184: "Welterweight",
-            204: "Middleweight",
-            224: "Lightheavyweight",
-            float('inf'): "Heavyweight"
-        }
-        for upper_limit, weight_class in weight_classes.items():
-            if weight < upper_limit:
-                return weight_class
-
-
-    def inch_to_cm(self, height: str) -> float:
-        """
-        Converts a given height in feet and inches to centimeters.
-
-        Args:
-            height (str): Height in feet and inches (e.g., "5'8"") or just inches (e.g., '68"').
-
-        Returns:
-            float: The height converted to centimeters, rounded to one decimal place.
-        """
-        if "'" in height:
-            feet, inches = height.split("'")
-            total_inches = (int(feet) * 12) + int(inches.strip('"'))
-            cm = total_inches * 2.54
-            return round(cm, 1)
-        
-        elif '"' in height:
-            inches = int(height.strip('"'))
-            return round(inches * 2.54, 1)
 
 
 def main():
