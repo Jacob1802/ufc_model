@@ -1,11 +1,11 @@
+from utils import get_weightclass, inch_to_cm
+from typing import Tuple, List, Dict
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import Tuple, List, Dict
-from scripts.utils import get_weightclass, inch_to_cm
 import pandas as pd
 import requests
 
-# TODO: call in sequence instead of returning lists eg from event urls call get details add to dict, call fight_details
+
 class UfcScraper:
     def __init__(self, last_event: str, last_fight: Tuple[str, str]):
         self.last_event = last_event
@@ -454,7 +454,7 @@ def main():
             location = event_data['location']
             event = event_data['event']
             print(event)
-            for fight_url in event_data['fight_urls']:
+            for i, fight_url in enumerate(event_data['fight_urls']):
                 fight_num += 1
                 result = scraper.get_fight_details(fight_url, event, date, location, fight_num)
                 rows.append(result)
@@ -463,6 +463,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # Remove rows from uncompleted events
+        length = len(rows)
+        rows = rows[:length-i]
         # Combine new data with existing DataFrame
         if not fights_df.empty:
             temp = pd.DataFrame(rows)
