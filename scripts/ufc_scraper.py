@@ -426,7 +426,17 @@ class UfcScraper:
             
         return (date, matchups, weightclass_column)
 
-    def process_events(self):
+    def process_events_and_write_data(self):
+        """
+        Processes UFC event data and updates the fight totals.
+
+        This method reads existing fight data from a CSV file and determines the starting fight number.
+        It then retrieves URLs for new events and processes each event to extract fight details.
+        The collected data is appended to the existing DataFrame and saved back to the CSV file.
+
+        Raises:
+            FileNotFoundError: If "data/raw_fight_totals.csv" does not exist.
+        """
         try:
             fights_df = pd.read_csv("data/raw_fight_totals.csv")
             # Determine the starting fight number
@@ -436,9 +446,9 @@ class UfcScraper:
             fight_num = 0
     
         urls = self.get_event_urls()
-    
         rows = []
         events = []
+
         try:
             for url in urls:
                 event_data = self.get_event_details(url)
@@ -446,19 +456,22 @@ class UfcScraper:
                 date = event_data['date']
                 location = event_data['location']
                 event = event_data['event']
+                # Log current event
                 print(event)
+                # Iter over fight urls and extract fight data
                 for i, fight_url in enumerate(event_data['fight_urls']):
                     fight_num += 1
                     result = self.get_fight_details(fight_url, event, date, location, fight_num)
                     rows.append(result)
-                
                 events.append(event)
+
         except KeyboardInterrupt:
             print("Interrupted")
         finally:
-            # Remove rows from uncompleted events
+            # Remove rows if event data was incomplete
             length = len(rows)
             rows = rows[:length-i]
+
             # Combine new data with existing DataFrame
             if not fights_df.empty:
                 temp = pd.DataFrame(rows)
