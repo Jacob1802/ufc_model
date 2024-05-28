@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 import pandas as pd
 import requests
 
@@ -12,10 +12,13 @@ class UfcScraper:
     
     def get_event_urls(self) -> List[str]:
         """
-        Extacts url of UFC events from ufcstats.com
+        Extracts URLs of UFC events from ufcstats.com.
+
+        This method retrieves the HTML content of the UFC events page, parses it using BeautifulSoup,
+        and extracts the URLs of completed UFC events. The URLs are collected into a list and returned.
 
         Returns:
-            List[str]: links to ufc events
+            List[str]: A list of URLs to UFC event detail pages.
         """
         target_url = "http://www.ufcstats.com/statistics/events/completed?page=all"
         # target_url = "http://www.ufcstats.com/statistics/events/completed"
@@ -37,17 +40,23 @@ class UfcScraper:
                     
         return event_urls[::-1]
 
-    def get_event_details(self, event):
+    def get_event_details(self, event: List[str]) -> Dict:
         """
-        Extracts detailed information about UFC events from event URLs.
+        Extracts detailed information about a UFC event from the given event URL.
 
-        This method retrieves event URLs using the `get_event_urls` method, then
-        iterates over each URL to fetch detailed information about the event, including
-        event metadata and fight details. The details are parsed from the HTML content
-        of the event pages and returned as a list of dictionaries.
+        This method fetches the HTML content of the event page from the provided URL,
+        parses it using BeautifulSoup, and extracts detailed information about the event.
+        The extracted details include the event name, metadata (such as date and location),
+        and URLs to the individual fight details. The information is compiled into a dictionary.
+
+        Args:
+            event (str): The URL of the event details page.
 
         Returns:
-            List[dict]: A list of dictionaries, each containing details of an event.
+            Dict: A dictionary containing detailed information about the event, including:
+                - 'event': The name of the event.
+                - Other keys representing event metadata (e.g., date, location).
+                - 'fight_urls': A list of URLs to detailed fight information for the event.
         """
 
         # Fetch the event page
@@ -75,19 +84,23 @@ class UfcScraper:
         return row
 
 
-    def get_fight_details(self, fight_url, event, date, location, fight_num):
+    def get_fight_details(self, fight_url: str, event: str, date: str, location: str, fight_num: int) -> Dict:
         """
-        Extracts detailed information about UFC fights and compiles them into a DataFrame.
+        Extracts detailed information about a UFC fight from the given URL and compiles it into a dictionary.
 
-        This method retrieves event details using the `get_event_details` method, then iterates
-        over each event and its associated fight URLs to fetch detailed information about each fight.
-        The details are parsed from the HTML content of the fight pages and returned as a DataFrame.
+        This method fetches the HTML content of the fight page from the provided URL, parses it using BeautifulSoup,
+        and extracts detailed information such as fight results, weight class, fighter names, and additional fight details
+        (e.g., method, round, time, format, referee). It also calculates and includes relevant fight statistics.
 
         Args:
-            df (pd.DataFrame): Existing DataFrame with fight details. If None, a new DataFrame is created.
+            fight_url (str): The URL of the fight details page.
+            event (str): The name of the event.
+            date (str): The date of the event.
+            location (str): The location of the event.
+            fight_num (int): The sequential number of the fight.
 
         Returns:
-            pd.DataFrame: Updated DataFrame with new fight details.
+            Dict: A dictionary containing detailed information about the fight.
         """
 
         row = {"fight_num": fight_num, "date": date, "location": location, "event": event}
@@ -158,7 +171,20 @@ class UfcScraper:
         
         return row
 
-    def totals(self, stats, header, row):
+    def totals(self, stats: List[str], header: List[str], row: Dict) -> Dict:
+        """
+        Processes and pairs fight statistics with their corresponding headers, and updates a given row dictionary
+        with these values, including calculations for landed, attempted, received, and avoided strikes, as well as
+        percentages.
+
+        Args:
+            stats (List[str]): A list of statistics in the format "value of value" or percentage values.
+            header (List[str]): A list of headers corresponding to the statistics.
+            row (Dict): A dictionary representing a single fight's data to be updated with the processed statistics.
+
+        Returns:
+            Dict: The updated row dictionary with the added fight statistics.
+        """
         # Pair stats with headers
         pairs = zip(stats[::2], stats[1::2], header)
         
@@ -211,7 +237,7 @@ class UfcScraper:
         return row
 
 
-    def all_stats(self, stats, row):
+    def all_stats(self, stats: List[str], row: Dict) -> Dict:
         for j in range(len(stats)):
             data = [i for i in stats[j].stripped_strings]
 
@@ -338,7 +364,16 @@ class UfcScraper:
         df.to_csv("data/fighter_stats.csv", index=False)
 
 
-    def get_weightclass(self, weight):
+    def get_weightclass(self, weight: str) -> str:
+        """
+        Converts a given weight in pounds to its corresponding weight class.
+
+        Args:
+            weight (str): Weight in pounds (e.g., '154 lbs.').
+
+        Returns:
+            str: The corresponding weight class (e.g., 'Featherweight').
+        """
         weight = int(weight.rstrip(" lbs."))
         weight_classes = {
             134: "Flyweight",
@@ -355,8 +390,16 @@ class UfcScraper:
                 return weight_class
 
 
-    def inch_to_cm(self, height) -> float:
-        
+    def inch_to_cm(self, height: str) -> float:
+        """
+        Converts a given height in feet and inches to centimeters.
+
+        Args:
+            height (str): Height in feet and inches (e.g., "5'8"") or just inches (e.g., '68"').
+
+        Returns:
+            float: The height converted to centimeters, rounded to one decimal place.
+        """
         if "'" in height:
             feet, inches = height.split("'")
             total_inches = (int(feet) * 12) + int(inches.strip('"'))
