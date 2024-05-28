@@ -365,6 +365,15 @@ class UfcScraper:
         df.to_csv("data/fighter_stats.csv", index=False)
 
     def get_next_event_link(self) -> List[str]:
+        """
+        Retrieves the URL of the next upcoming UFC event from ufcstats.com.
+
+        This method fetches the HTML content of the upcoming events page, parses it using BeautifulSoup,
+        and extracts the URL of the next UFC event. The URL is returned as a string.
+
+        Returns:
+            str: The URL of the next upcoming UFC event.
+        """
         url = "http://www.ufcstats.com/statistics/events/upcoming"
         response = requests.get(url)
         soup = BeautifulSoup(response.content, "html.parser")
@@ -374,7 +383,21 @@ class UfcScraper:
         
         return href
 
-    def get_future_matchups(self) -> Tuple[str, str, str]:
+    def get_future_matchups(self) -> Tuple[str, List[Tuple[str, str]], List[str]]:
+        """
+        Retrieves future matchups, their weight classes, and the event date from the next UFC event.
+
+        This method fetches the URL of the next upcoming UFC event using the `get_next_event_link` method,
+        then retrieves and parses the HTML content of the event page to extract the fighters' names,
+        weight classes, and the event date. The information is compiled into a tuple containing the event
+        date, a list of matchups, and a list of weight classes.
+
+        Returns:
+            Tuple[str, List[Tuple[str, str]], List[str]]:
+                - str: The date of the event.
+                - List[Tuple[str, str]]: A list of matchups, each represented as a tuple of two fighter names.
+                - List[str]: A list of weight classes for the matchups.
+        """
         event_link = self.get_next_event_link()
         response = requests.get(event_link)
         soup = BeautifulSoup(response.content, 'html.parser')
