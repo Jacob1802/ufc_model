@@ -1,11 +1,15 @@
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import List
+from typing import Tuple, List
 import pandas as pd
 import requests
-import sys
 
+# TODO: call in sequence instead of returning lists eg from event urls call get details add to dict, call fight_details
 class UfcScraper:
+    def __init__(self, last_event: str, last_fight: Tuple[str, str]):
+        self.last_event = last_event
+        self.last_fight = last_fight
+    
     def get_event_urls(self) -> List[str]:
         """
         Extacts url of UFC events from ufcstats.com
@@ -20,16 +24,11 @@ class UfcScraper:
 
         # Find first event url
         url = soup.find('a', class_='b-link b-link_style_black')
-        
-        # Read the last card from the file
-        with open('data/cards.csv', 'r') as f:
-            cards = f.readlines()
-        last_card = cards[-1].strip() if cards else ""
 
         event_urls = []
         while url:
             event = url.text.strip()
-            if event == last_card:
+            if event == self.last_event:
                 break
             href = url['href']
             event_urls.append(href)
@@ -38,8 +37,7 @@ class UfcScraper:
                     
         return event_urls[::-1]
 
-
-    def get_event_details(self):
+    def get_event_details(self, event):
         """
         Extracts detailed information about UFC events from event URLs.
 
@@ -51,126 +49,116 @@ class UfcScraper:
         Returns:
             List[dict]: A list of dictionaries, each containing details of an event.
         """
-        # Get a list of event urls
-        event_urls = self.get_event_urls()
-        rows = []
 
-        # Iterate over each event url to fetch event details
-        for event in event_urls:
-            # Fetch the event page
-            response = requests.get(event)
-            soup = BeautifulSoup(response.content, "html.parser")
-            
-            # Extract the event name
-            event = soup.find("span", class_="b-content__title-highlight").text.strip()
-            row = {"event": event}
-            
-            # Extract other event metadata
-            for li in soup.find_all("li", class_="b-list__box-list-item"):
-                title = li.find("i").text.strip()
-                value = li.text.strip().replace(title, "").strip()
-                row[title.replace(":", "").lower()] = value
-            
-            raw_fight_data = soup.find_all("tr", class_="b-fight-details__table-row b-fight-details__table-row__hover js-fight-details-click")
-            # Extract fight urls
-            fight_urls = [data['data-link'] for data in raw_fight_data]
-            
-            # Add the list of fight urls to the event row
-            row['fight_urls'] = fight_urls[::-1]
-            rows.append(row)
+        # Fetch the event page
+        response = requests.get(event)
+        soup = BeautifulSoup(response.content, "html.parser")
+        
+        # Extract the event name
+        event = soup.find("span", class_="b-content__title-highlight").text.strip()
+        row = {"event": event}
+        
+        # Extract other event metadata
+        for li in soup.find_all("li", class_="b-list__box-list-item"):
+            title = li.find("i").text.strip()
+            value = li.text.strip().replace(title, "").strip()
+            row[title.replace(":", "").lower()] = value
+        
+        raw_fight_data = soup.find_all("tr", class_="b-fight-details__table-row b-fight-details__table-row__hover js-fight-details-click")
+        # Extract fight urls
+        fight_urls = [data['data-link'] for data in raw_fight_data]
+        
+        # Add the list of fight urls to the event row
+        row['fight_urls'] = fight_urls[::-1]
         
         # Return the list of event details
-        return rows
+        return row
 
 
-    def get_fight_details(self, df):
-        data = self.get_event_details()
-        rows = []
-        if df is not None:
-            fight_num = df.iloc[-1]['fight_num']
-        else:
-            fight_num = 0
+    def get_fight_details(self, fight_url, event, date, location, fight_num):
+        """
+        Extracts detailed information about UFC fights and compiles them into a DataFrame.
+
+        This method retrieves event details using the `get_event_details` method, then iterates
+        over each event and its associated fight URLs to fetch detailed information about each fight.
+        The details are parsed from the HTML content of the fight pages and returned as a DataFrame.
+
+        Args:
+            df (pd.DataFrame): Existing DataFrame with fight details. If None, a new DataFrame is created.
+
+        Returns:
+            pd.DataFrame: Updated DataFrame with new fight details.
+        """
+
+        row = {"fight_num": fight_num, "date": date, "location": location, "event": event}
         
-        for card in data:
-            date = card['date']
-            location = card['location']
-            event = card['event']
-            print(event)
-            for i, fight in enumerate(card['fight_urls'], start=1):
-                fight_num += 1
-                row = {"fight_num" : fight_num, "date": date, "location": location, "event" : event}
-                response = requests.get(fight)
-                soup = BeautifulSoup(response.content, "html.parser")
-                names = [name.text.strip() for name in soup.find_all("h3", class_="b-fight-details__person-name")]
-                result = soup.find("i", class_="b-fight-details__person-status").text.strip()
-                weight_class = soup.find("i", class_="b-fight-details__fight-title").text.strip()
-                if result == "W":
-                    row["result_1"] = result
-                    row["result_2"] = "L"
-                elif result == "L":
-                    row["result_1"] = result
-                    row["result_2"] = "W"
+        # Fetch the fight page
+        response = requests.get(fight_url)
+        soup = BeautifulSoup(response.content, "html.parser")
+        
+        # Extract fight result
+        result = soup.find("i", class_="b-fight-details__person-status").text.strip()
+        
+        # Determine results for both fighters
+        if result == "W":
+            row["result_1"] = result
+            row["result_2"] = "L"
+        elif result == "L":
+            row["result_1"] = result
+            row["result_2"] = "W"
+        else:
+            # In the event of a draw/NC/DQ
+            row["result_1"] = result
+            row["result_2"] = result
+        
+        # Extract weight class
+        weight_class = soup.find("i", class_="b-fight-details__fight-title").text.strip()
+        row['weight_class'] = weight_class
+        
+        raw_names = soup.find_all("h3", class_="b-fight-details__person-name")
+        # Extract fighter names
+        names = [name.text.strip() for name in raw_names]
+        # Add fighter names to the row
+        for i, name in enumerate(names, start=1):
+            row[f'fighter_{i}'] = name
+        
+        # Add fight details (method, round, time, format, ref)
+        details = [i for detail in soup.find_all("p", class_="b-fight-details__text") for i in detail.stripped_strings]
+        for i in range(0, len(details), 2):
+            if details[i] != "Details:":
+                if details[i] == "Referee:" and details[i + 1] == "Details:":
+                    row[details[i].strip(":").lower()] = None
+                    try:
+                        row[details[i + 1].strip(":").lower()] = details[i + 2]
+                    except IndexError:
+                        row[details[i + 1].strip(":").lower()] = None
+                    break
                 else:
-                    row["result_1"] = result
-                    row["result_2"] = result
-                    
-                    
-                row['weight_class'] = weight_class
-                
-                for i, name in enumerate(names, start=1):
-                    row[f'fighter_{i}'] = name
-                
-                # Add fight details (method, round, time, format, ref)
-                details = [i for detail in soup.find_all("p", class_="b-fight-details__text") for i in detail.stripped_strings]
-                for i in range(0, len(details), 2):
-                    if details[i] != "Details:":
-                        if details[i] == "Referee:" and details[i + 1] == "Details:":
-                            row[details[i].strip(":").lower()] = None
-                            try:
-                                row[details[i+1].strip(":").lower()] = details[i+2]
-                            except IndexError:
-                                row[details[i+1].strip(":").lower()] = None
-                            break
-                        else:
-                            row[details[i].strip(":").lower()] = details[i + 1]
-                    elif row['method'] == "TKO - Doctor's Stoppage":
-                        row[details[i].strip(":").lower()] = None
-                        break
-                    else:
-                        try:
-                            if "\n" in details[i+1:][0]:
-                                row[details[i].strip(":").lower()] = ' '.join([part.strip() for part in details[i+1:][0].split('\n')])
-                            else:
-                                row[details[i].strip(":").lower()] = " ".join(details[i+1:])
-                        except IndexError:
-                                row[details[i].strip(":").lower()] = None
-                        break
+                    row[details[i].strip(":").lower()] = details[i + 1]
+            elif row['method'] == "TKO - Doctor's Stoppage":
+                row[details[i].strip(":").lower()] = None
+                break
+            else:
                 try:
-                    stats = [i for i in soup.find("tbody", class_="b-fight-details__table-body").stripped_strings]
-                    header = [i for i in soup.find("thead", class_="b-fight-details__table-head").stripped_strings]
-                    row = self.totals(stats, header, row)
-                except AttributeError:
-                    pass
-                # breakdown of fight stats, round by round and strike breakdown
-                # stats = soup.find_all("tbody", class_="b-fight-details__table-body")
-                # all_stats(stats, row)
-                # only total
-                
-                rows.append(row)
+                    if "\n" in details[i + 1:][0]:
+                        row[details[i].strip(":").lower()] = ' '.join([part.strip() for part in details[i + 1:][0].split('\n')])
+                    else:
+                        row[details[i].strip(":").lower()] = " ".join(details[i + 1:])
+                except IndexError:
+                    row[details[i].strip(":").lower()] = None
+                break
         
-        if df is not None:
-            temp = pd.DataFrame(rows)
-            df = pd.concat([df, temp])
-        else:
-            df = pd.DataFrame(rows)
+        # Add fight stats (if available)
+        try:
+            stats = [i for i in soup.find("tbody", class_="b-fight-details__table-body").stripped_strings]
+            header = [i for i in soup.find("thead", class_="b-fight-details__table-head").stripped_strings]
+            row = self.totals(stats, header, row)
+        except AttributeError:
+            pass
         
-        # df.to_csv("fights_rbr.csv", index=False)
-        df.to_csv("data/raw_fight_totals.csv", index=False)
-        unique_events = df["event"].unique()
-        pd.Series(unique_events).to_csv("data/cards.csv", index=False)
+        return row
 
-
-    def totals(stats, header, row):
+    def totals(self, stats, header, row):
         # Pair stats with headers
         pairs = zip(stats[::2], stats[1::2], header)
         
@@ -223,7 +211,7 @@ class UfcScraper:
         return row
 
 
-    def all_stats(stats, row):
+    def all_stats(self, stats, row):
         for j in range(len(stats)):
             data = [i for i in stats[j].stripped_strings]
 
@@ -381,16 +369,55 @@ class UfcScraper:
 
 
 def main():
-    scraper = UfcScraper()
     try:
         fights_df = pd.read_csv("data/raw_fight_totals.csv")
     except FileNotFoundError:
-        scraper.get_fight_details(None)
-        sys.exit()
-    
-    # extract_fighter_stats()
-    scraper.get_fight_details(fights_df)
+        fights_df = None
 
+    # Determine the starting fight number
+    fight_num = fights_df.iloc[-1]['fight_num'] if not fights_df.empty else 0
+    last_fight = (fights_df.iloc[-1]['fighter_1'], fights_df.iloc[-1]['fighter_2']) if not fights_df.empty else None
+    # Read the last card from the file
+    with open('data/cards.txt', 'r') as f:
+        cards = f.readlines()
+    last_event = cards[-1].strip() if cards else ""
+
+    scraper = UfcScraper(last_event, last_fight)
+
+    urls = scraper.get_event_urls()
+    
+    rows = []
+    events = []
+    try:
+        for url in urls:
+            event_data = scraper.get_event_details(url)
+            # Iterate over each fight URL in the event
+            date = event_data['date']
+            location = event_data['location']
+            event = event_data['event']
+            print(event)
+            for fight_url in event_data['fight_urls']:
+                fight_num += 1
+                result = scraper.get_fight_details(fight_url, event, date, location, fight_num)
+                rows.append(result)
+            
+            events.append(event)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Combine new data with existing DataFrame
+        if not fights_df.empty:
+            temp = pd.DataFrame(rows)
+            fights_df = pd.concat([fights_df, temp])
+        else:
+            fights_df = pd.DataFrame(rows)
+            
+        # Save the updated DataFrame to CSV
+        fights_df.to_csv("data/raw_fight_totals.csv", index=False)
+        # Write the last card to a txt
+        with open("data/cards.txt", "a") as file:
+            for event in events:
+                file.write(f"{event}\n")
 
 if __name__ == "__main__":
     main()
