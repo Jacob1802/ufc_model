@@ -22,18 +22,18 @@ result_columns = ['rounds', 'total_fight_time', 'win_streak', 'loss_streak', 'da
      'opponent_total_fight_time', 'opponent_win_streak', 'opponent_loss_streak', 'opponent_days_since_last_fight', 'reach', 'age', 'opponent_reach', 'opponent_age']
 
 
-def main():
+def create_predictions_csv():
      # Read prediction data and existing predictions
-     pred_df = pd.read_csv("data/prediction_data.csv")
+     upcoming_fights = pd.read_csv("data/upcoming_fight_data.csv")
      existing_predictions = pd.read_csv('data/predictions.csv')
 
      # Convert string columns to numeric values
-     pred_df['days_since_last_fight'] = pd.to_numeric(pred_df['days_since_last_fight'].str.replace(' days', ''))
-     pred_df['opponent_days_since_last_fight'] = pd.to_numeric(pred_df['opponent_days_since_last_fight'].str.replace(' days', ''))
+     upcoming_fights['days_since_last_fight'] = pd.to_numeric(upcoming_fights['days_since_last_fight'].str.replace(' days', ''))
+     upcoming_fights['opponent_days_since_last_fight'] = pd.to_numeric(upcoming_fights['opponent_days_since_last_fight'].str.replace(' days', ''))
 
      # Train models and obtain predictions
      res_model, models = train_models()
-     X = result_data(pred_df, predictions=True)
+     X = result_data(upcoming_fights, predictions=True)
      pred = res_model.predict(X)
      proba = res_model.predict_proba(X)
 
@@ -45,8 +45,8 @@ def main():
 
      # Create dictionary to store results
      results = {
-     'fight_num': pred_df['fight_num'],
-     'fighter': pred_df['fighter'],
+     'fight_num': upcoming_fights['fight_num'],
+     'fighter': upcoming_fights['fighter'],
      'prediction': transformed_array,
      'prediction_code': pred
      }
@@ -54,7 +54,7 @@ def main():
      # Obtain additional statistics predictions from models
      for i, (cols, model) in enumerate(models):
           stat_X = get_train_test_data(cols, None, True)
-          stat_pred = model.predict(pred_df[stat_X.columns.to_list()])
+          stat_pred = model.predict(upcoming_fights[stat_X.columns.to_list()])
           results[list(exclude_lists.keys())[i]] = stat_pred
 
      # Create DataFrame from results and add confidence column

@@ -1,5 +1,5 @@
 from sklearn.preprocessing import LabelEncoder
-from future_fights import get_future_matchups
+from scripts.ufc_scraper import UfcScraper
 import pandas as pd
 import math
 import re
@@ -10,7 +10,7 @@ INITIAL_RATING = 1200 # Starting rating for new fighters
 fighter_ratings = {}
 
 
-def main():
+def prep_model_data():
     input_file = pd.read_csv("data/raw_fight_totals.csv")
     new = split_dataframe(input_file)
     
@@ -18,7 +18,7 @@ def main():
     new[['curr_elo', 'curr_elo_change', 'future_elo', 'future_elo_change']] = elo[['curr_elo', 'curr_elo_change', 'future_elo', 'future_elo_change']]
     df = reformat_data(new)
     predictions_df = add_new_features(df, 0, True)
-    predictions_csv(predictions_df)
+    create_upcoming_fights_csv(predictions_df)
     df = add_new_features(df, 1)
     # Fill NaN values in columns with non-time data types
     dt_excluded_cols = df.select_dtypes(exclude=['timedelta64[ns]'])
@@ -33,17 +33,15 @@ def main():
 
     joined_df = join_rows(df)
     joined_df.to_csv("data/fights.csv", index=False)
+    return joined_df
 
 
-def predictions_csv(df):
+def create_upcoming_fights_csv(df):
     """
     Process the predictions dataframe and save the modified version as a CSV file.
 
     Args:
         predictions_df (pandas.DataFrame): The dataframe containing predictions data.
-
-    Returns:
-        None
     """
 
     # List of columns to exclude from the final dataframe
@@ -56,7 +54,7 @@ def predictions_csv(df):
     ]
 
     # Get future matchups, date, and weight classes
-    date, matchups, weightclasses = get_future_matchups()
+    date, matchups, weightclasses = UfcScraper().get_future_matchups()
     # Flatten matchups into a list of fighters
     fighters = [fighter for matchup in matchups for fighter in matchup]
     # Convert date to a pandas Timestamp object
@@ -99,7 +97,7 @@ def predictions_csv(df):
     joined_predictions = join_rows(predictions_df, True)
     joined_predictions = joined_predictions.drop(exclude, axis=1)
     # Save the joined predictions dataframe as a CSV file
-    joined_predictions.to_csv("data/prediction_data.csv", index=False)
+    joined_predictions.to_csv("data/upcoming_fight_data.csv", index=False)
 
 
 def join_rows(df, predictions=False):
@@ -441,4 +439,4 @@ def set_elo(df):
 
 
 if __name__ == "__main__":
-    main()
+    format_and_create_features()
