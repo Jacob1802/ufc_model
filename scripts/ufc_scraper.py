@@ -1,4 +1,4 @@
-from utils import get_weightclass, inch_to_cm
+from scripts.utils import get_weightclass, inch_to_cm
 from typing import Tuple, List, Dict
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -11,7 +11,7 @@ class UfcScraper:
     with open('data/cards.txt', 'r') as f:
         cards = f.readlines()
     last_event = cards[-1].strip() if cards else ""
-    
+
     def get_event_urls(self) -> List[str]:
         """
         Extracts URLs of UFC events from ufcstats.com.
@@ -446,9 +446,14 @@ class UfcScraper:
             fight_num = 0
     
         urls = self.get_event_urls()
+        if not urls:
+            print("Fight data up to date")
+            return False
+        
         rows = []
         events = []
-
+        i = 0
+        print("Getting latest fight data")
         try:
             for url in urls:
                 event_data = self.get_event_details(url)
@@ -485,3 +490,5 @@ class UfcScraper:
             with open("data/cards.txt", "a") as file:
                 for event in events:
                     file.write(f"{event}\n")
+        
+        return True
