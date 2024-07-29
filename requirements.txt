@@ -1,5 +1,5 @@
-bs4
+beautifulsoup4==4.12.3
 pandas==1.5.3
 requests
-scikit-learn
+scikit-learn==1.5.1
 lightgbm==3.3.5
