@@ -8,9 +8,13 @@ import requests
 
 class UfcScraper:
     # Read the last card from the file
-    with open('data/cards.txt', 'r') as f:
-        cards = f.readlines()
-    last_event = cards[-1].strip() if cards else ""
+    def __init__(self):
+        try:
+            with open('data/cards.txt', 'r') as f:
+                cards = f.readlines()
+            self.last_event = cards[-1].strip() if cards else ""
+        except FileNotFoundError:
+            self.last_event = ""
 
     def get_event_urls(self) -> List[str]:
         """
@@ -452,7 +456,6 @@ class UfcScraper:
         
         rows = []
         events = []
-        i = 0
         print("Getting latest fight data")
         try:
             for url in urls:
@@ -469,7 +472,8 @@ class UfcScraper:
                     result = self.get_fight_details(fight_url, event, date, location, fight_num)
                     rows.append(result)
                 events.append(event)
-
+            # Reset i to 0 if scrape completed
+            i = 0
         except KeyboardInterrupt:
             print("Interrupted")
         finally:
