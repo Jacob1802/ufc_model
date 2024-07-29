@@ -1,0 +1,5 @@
+bs4
+pandas==1.5.3
+requests
+scikit-learn
+lightgbm==3.3.5
